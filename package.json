@@ -1,0 +1,17 @@
+{
+  "name": "higan",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Web-first maker for Touhou-style danmaku games.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3",
+    "vite": "8.0.16"
+  }
+}
