@@ -1,36 +1,30 @@
-// Fixed-timestep simulation loop, decoupled from rendering.
+// Raw animation-frame ticker.
 //
-// Real elapsed time is accumulated and the simulation is advanced in fixed `dt`
-// increments (0..n steps per rendered frame). Each step advances by exactly
-// `dt`, independent of the display's refresh rate or frame jitter — the basis
-// for determinism (Hard Rule 2). The simulation step receives no wall-clock
-// time; only this decoupling layer reads the real clock, to decide how many
-// fixed steps to run. Rendering happens once per animation frame, after that
-// frame's steps.
+// This is purely "when to draw": it schedules `requestAnimationFrame` and hands
+// the caller the real elapsed wall-clock time since the previous frame. It does
+// NOT decide how much simulation to advance — that (the fixed-timestep
+// accumulator, pausing, slow-motion, stepping) lives in the driver above it, so
+// the debugger can control stepping without this layer knowing about it.
 //
-// This is the timing skeleton; input recording, the state-hash check, and the
-// frame-step debugger are layered on later.
+// Two deliberate behaviors live here because they are about the real clock:
+//   - A frame whose delta exceeds the anomaly threshold (a backgrounded tab, a
+//     breakpoint, the first frame after resume) reports 0 elapsed instead of a
+//     huge spike, so the driver never fast-forwards through a burst of steps.
+//   - When the tab becomes visible again, the clock baseline is reset so the
+//     first visible frame doesn't report the whole hidden interval.
 
-export interface LoopOptions {
-  /** Fixed simulation timestep, in seconds (e.g. 1 / 60). */
-  readonly dt: number;
-  /** Advance the simulation by exactly `dt` seconds. */
-  step: () => void;
-  /** Draw the current state. Called once per rendered frame. */
-  render: () => void;
-  /** Cap on sim steps per rendered frame, to avoid a spiral of death after a stall. */
-  readonly maxStepsPerFrame?: number;
-}
+/** Deltas larger than this (seconds) are treated as anomalies and reported as 0. */
+const ANOMALY_THRESHOLD = 0.1;
 
 export interface LoopHandle {
   stop: () => void;
 }
 
-export function startFixedTimestepLoop(opts: LoopOptions): LoopHandle {
-  const { dt, step, render } = opts;
-  const maxSteps = opts.maxStepsPerFrame ?? 5;
-
-  let acc = 0;
+/**
+ * Drive `onFrame` once per animation frame, passing the (anomaly-clamped) real
+ * elapsed seconds since the previous frame.
+ */
+export function startAnimationLoop(onFrame: (dtSeconds: number) => void): LoopHandle {
   let prev = performance.now();
   let running = true;
   let rafId = 0;
@@ -42,19 +36,7 @@ export function startFixedTimestepLoop(opts: LoopOptions): LoopHandle {
     const elapsed = (now - prev) / 1000;
     prev = now;
 
-    // A huge delta means a backgrounded tab, a breakpoint, or the first frame
-    // after resume. Don't flood the accumulator and fast-forward through many
-    // steps — skip simulation time for this frame instead.
-    const frameDt = elapsed > 0.1 ? 0 : elapsed;
-
-    acc += frameDt;
-    let steps = 0;
-    while (acc >= dt && steps < maxSteps) {
-      step();
-      acc -= dt;
-      steps++;
-    }
-    render();
+    onFrame(elapsed > ANOMALY_THRESHOLD ? 0 : elapsed);
   };
 
   const onVisibility = (): void => {

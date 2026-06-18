@@ -6,15 +6,28 @@
     <title>Higan</title>
     <style>
       :root { color-scheme: dark; }
-      html, body { margin: 0; height: 100%; background: #07080d; }
+      html, body { margin: 0; height: 100%; background: #07080d;
+        font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #aeb6c8; }
       #stage { display: flex; align-items: center; justify-content: center; min-height: 100%; }
+      #field { position: relative; }
       /* 4:3-ish portrait playfield (384x448 sim units), scaled up for display. */
-      canvas { background: #02030a; image-rendering: pixelated;
+      canvas { display: block; background: #02030a; image-rendering: pixelated;
         box-shadow: 0 0 0 1px #1c2233, 0 0 40px #0a1430; }
+      /* Dev overlay: tick / hash / debugger state. Not part of the engine. */
+      #hud { position: absolute; top: 8px; left: 8px; pointer-events: none;
+        white-space: pre; text-shadow: 0 1px 2px #000; opacity: 0.9; }
+      #help { position: absolute; bottom: 8px; left: 8px; right: 8px;
+        pointer-events: none; opacity: 0.6; text-shadow: 0 1px 2px #000; }
     </style>
   </head>
   <body>
-    <div id="stage"><canvas id="playfield"></canvas></div>
+    <div id="stage">
+      <div id="field">
+        <canvas id="playfield"></canvas>
+        <div id="hud"></div>
+        <div id="help">move: arrows/WASD · focus: shift · &nbsp; space: pause · .: step · ,: back · 1/2/3: speed</div>
+      </div>
+    </div>
     <script type="module" src="/src/demo/main.ts"></script>
   </body>
 </html>
