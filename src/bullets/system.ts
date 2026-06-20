@@ -20,6 +20,27 @@
 
 import { createBulletStore, MAX_BULLETS, type BulletStore } from "./store";
 
+// Per-bullet behaviour selectors interpreted by the update loop. A bullet's
+// "behaviour" is one of these ids plus up to two numeric params (bp0, bp1) — a
+// fixed-size descriptor, never user code (Hard Rule 1). Only Ramp and Home pay
+// per-frame trig, and only over their own bullets; Linear (the common case) and
+// Accelerate stay a bare add.
+//
+// A const object (not an enum) so it stays fully erasable under isolatedModules /
+// verbatimModuleSyntax and the headless test flow, while still reading as
+// `Behavior.Linear` at the call sites.
+export const Behavior = {
+  /** Constant velocity. */
+  Linear: 0,
+  /** Constant cartesian acceleration in `(bp0, bp1)`; direction unchanged. */
+  Accelerate: 1,
+  /** Ramp speed by `bp0`/s and heading by `bp1` rad/s. */
+  Ramp: 2,
+  /** Steer heading toward the shared target, up to `bp0` rad/s, keeping speed. */
+  Home: 3,
+} as const;
+export type Behavior = (typeof Behavior)[keyof typeof Behavior];
+
 /** Field rectangle plus the off-field margin past which bullets are culled. */
 export interface BulletBounds {
   readonly width: number;
@@ -38,22 +59,33 @@ export interface BulletSystem {
   readonly liveCount: number;
   /**
    * Spawn a bullet. Returns its slot index, or -1 if the store is full.
-   * `radius` is both the collision and the draw half-size, in sim units.
+   * Positional (not an opts object) so the emitter layer can spawn tens of
+   * thousands per frame with zero per-bullet allocation. `radius` is both the
+   * collision and the draw half-size; `angle` is the draw heading; `sprite` is
+   * the atlas shape; `behavior`/`bp0`/`bp1` form the per-bullet descriptor.
    */
   spawn(
     x: number,
     y: number,
     vx: number,
     vy: number,
+    angle: number,
     radius: number,
     r: number,
     g: number,
     b: number,
+    sprite: number,
+    behavior: number,
+    bp0: number,
+    bp1: number,
   ): number;
   /** Free a slot. A no-op if the slot is already free. */
   despawn(slot: number): void;
-  /** Advance every live bullet one fixed step and cull those past the bounds. */
-  update(dt: number): void;
+  /**
+   * Advance every live bullet one fixed step (interpreting its behaviour) and
+   * cull those past the bounds. `targetX`/`targetY` is the shared homing target.
+   */
+  update(dt: number, targetX: number, targetY: number): void;
   /** Return to the empty state (used to rebuild a run from scratch). */
   clear(): void;
 }
@@ -63,7 +95,7 @@ export function createBulletSystem(
   capacity: number = MAX_BULLETS,
 ): BulletSystem {
   const store = createBulletStore(capacity);
-  const { x, y, vx, vy, radius, r, g, b } = store;
+  const { x, y, vx, vy, angle, radius, r, g, b, sprite, behavior, bp0, bp1, age } = store;
   const alive = new Uint8Array(capacity);
   // Stack of free slot indices; `freeTop` is the number of entries in use.
   const freeStack = new Int32Array(capacity);
@@ -86,7 +118,7 @@ export function createBulletSystem(
     get liveCount() {
       return liveCount;
     },
-    spawn(sx, sy, svx, svy, sr, cr, cg, cb): number {
+    spawn(sx, sy, svx, svy, sang, sr, cr, cg, cb, ssprite, sbehavior, sbp0, sbp1): number {
       let slot: number;
       if (freeTop > 0) {
         slot = freeStack[--freeTop];
@@ -101,10 +133,16 @@ export function createBulletSystem(
       y[slot] = sy;
       vx[slot] = svx;
       vy[slot] = svy;
+      angle[slot] = sang;
       radius[slot] = sr;
       r[slot] = cr;
       g[slot] = cg;
       b[slot] = cb;
+      sprite[slot] = ssprite;
+      behavior[slot] = sbehavior;
+      bp0[slot] = sbp0;
+      bp1[slot] = sbp1;
+      age[slot] = 0;
       return slot;
     },
     despawn(slot): void {
@@ -113,9 +151,42 @@ export function createBulletSystem(
       freeStack[freeTop++] = slot;
       liveCount--;
     },
-    update(dt): void {
+    update(dt, targetX, targetY): void {
       for (let i = 0; i < highWater; i++) {
         if (alive[i] === 0) continue;
+        age[i]++;
+
+        // Behaviour. Linear is the first (near-always-taken) branch; only Ramp
+        // and Home pay trig, and only over their own bullets.
+        const beh = behavior[i];
+        if (beh !== Behavior.Linear) {
+          if (beh === Behavior.Accelerate) {
+            // Constant cartesian acceleration; direction (and `angle`) unchanged.
+            vx[i] += bp0[i] * dt;
+            vy[i] += bp1[i] * dt;
+          } else if (beh === Behavior.Ramp) {
+            const sp = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]) + bp0[i] * dt;
+            const an = angle[i] + bp1[i] * dt;
+            vx[i] = Math.cos(an) * sp;
+            vy[i] = Math.sin(an) * sp;
+            angle[i] = an;
+          } else if (beh === Behavior.Home) {
+            const sp = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
+            const desired = Math.atan2(targetY - y[i], targetX - x[i]);
+            let diff = desired - angle[i];
+            // Wrap the heading error into [-PI, PI] so we always turn the short way.
+            while (diff > Math.PI) diff -= 2 * Math.PI;
+            while (diff < -Math.PI) diff += 2 * Math.PI;
+            const maxTurn = bp0[i] * dt;
+            if (diff > maxTurn) diff = maxTurn;
+            else if (diff < -maxTurn) diff = -maxTurn;
+            const an = angle[i] + diff;
+            vx[i] = Math.cos(an) * sp;
+            vy[i] = Math.sin(an) * sp;
+            angle[i] = an;
+          }
+        }
+
         const nx = x[i] + vx[i] * dt;
         const ny = y[i] + vy[i] * dt;
         x[i] = nx;

@@ -2,9 +2,9 @@
 //
 // Floods the real engine modules — the bullet system (spawn / cull / free-list /
 // update loop) and the instanced renderer — to a steady-state target and reports
-// the on-screen frame cadence. This is the integration check the spike's
-// contiguous-range harness could not give: it exercises despawn, off-field
-// culling, and free-list reuse, then confirms the CPU floor still holds.
+// the on-screen frame cadence. It exercises despawn, off-field culling, and
+// free-list reuse — the paths a fixed contiguous range never touches — to
+// confirm the CPU floor still holds once those are in the loop.
 //
 // Not part of the engine or the playable demo. The HUD here is dev
 // instrumentation only.
@@ -72,7 +72,25 @@ function refill(): void {
     const a = rng.range(0, Math.PI * 2);
     const speed = rng.range(SPEED_MIN, SPEED_MAX);
     const c = PALETTE[rng.u32() % PALETTE.length]!;
-    if (system.spawn(ex, ey, Math.cos(a) * speed, Math.sin(a) * speed, rng.range(2.2, 4.5), c[0], c[1], c[2]) < 0) {
+    // Straight-line bullets (Behavior.Linear = 0, no params) — this driver
+    // measures the common-case branch + age write the widened loop adds.
+    if (
+      system.spawn(
+        ex,
+        ey,
+        Math.cos(a) * speed,
+        Math.sin(a) * speed,
+        a,
+        rng.range(2.2, 4.5),
+        c[0],
+        c[1],
+        c[2],
+        0, // sprite
+        0, // behavior: Linear
+        0, // bp0
+        0, // bp1
+      ) < 0
+    ) {
       break; // store full
     }
     budget--;
@@ -81,7 +99,8 @@ function refill(): void {
 
 function step(): void {
   refill();
-  system.update(DT);
+  // Linear bullets ignore the target; centre is fine.
+  system.update(DT, PLAYFIELD_W / 2, PLAYFIELD_H / 2);
   tick++;
 }
 

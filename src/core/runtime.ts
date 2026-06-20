@@ -43,6 +43,13 @@ export interface SimDriver {
   singleStep(): void;
   /** Rewind one tick by replaying the recorded input from the seed (and pause). */
   stepBack(): void;
+  /**
+   * Rebuild from the seed and replay the recorded input back to the CURRENT tick,
+   * preserving the play/pause state. Used after a hot-reload so edited code lands
+   * at the same tick with the run intact (the replay is what re-executes the new
+   * emitter generators deterministically).
+   */
+  resync(): void;
   /** Set the slow-motion multiplier (1 = real time, 0.25 = quarter speed). */
   setSpeed(mult: number): void;
   stop(): void;
@@ -116,6 +123,14 @@ export function createSimDriver(opts: SimDriverOptions): SimDriver {
       paused = true;
       acc = 0;
       const target = tick - 1;
+      rebuild();
+      tick = 0;
+      while (tick < target) advanceOne();
+      render();
+    },
+    resync(): void {
+      acc = 0;
+      const target = tick;
       rebuild();
       tick = 0;
       while (tick < target) advanceOne();

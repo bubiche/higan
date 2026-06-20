@@ -2,79 +2,110 @@
 //
 // This module is intentionally free of any browser surface — no DOM, no
 // `performance.now`, no `Math.random`. Its entire output is a pure function of
-// (seed, input stream): construct with a seed, feed it a sequence of
+// (seed, input stream, patterns): construct it, feed it a sequence of
 // InputFrames, and the resulting state — and its hash — are bit-identical every
 // time (Hard Rule 2). That purity is what lets the determinism check run
 // headlessly and what makes backward-scrub (replay from seed) and replay work.
 //
-// The content here (a player you steer and a field of drifting motes) is a
-// placeholder to exercise input + the seeded RNG + the SoA store and give the
-// determinism hash something real to fingerprint. The actual bullet system —
-// spawn/despawn, the free-list, culling, the dumb-data update loop — is built on
-// top of the SoA store later; motes are not that system.
+// The sim owns the bullet system, the emitter scheduler, and a tick-driven scene
+// that cycles through a set of named patterns. The patterns are passed IN (the
+// demo supplies them) so this core stays pattern-agnostic and the determinism
+// boundary holds — core never imports the demo. Emitters run at the emitter layer
+// (O(hundreds)); bullets stay dumb data updated by the flat numeric loop in the
+// bullet system (Hard Rule 1). The single shared `target` (the keyboard player)
+// drives aimed/home, so input flows into the spawn path and the determinism guard
+// covers it.
 
 import { Rng } from "./prng";
 import { hashFloat32Arrays } from "./hash";
-import { createBulletStore, type BulletStore } from "../bullets/store";
+import { createBulletSystem, type BulletSystem } from "../bullets/system";
+import {
+  startEmitter,
+  stepEmitter,
+  type RunningEmitter,
+  type ScenePattern,
+  type Vec2,
+} from "../api/emitter";
 import { PLAYFIELD_W, PLAYFIELD_H } from "./playfield";
 import type { InputFrame } from "./input";
 
-const MOTE_COUNT = 512;
+const SIM_CAPACITY = 4096;
+const CULL_MARGIN = 16;
 const PLAYER_RADIUS = 6;
 const PLAYER_SPEED = 260; // sim units / second
 const FOCUS_SPEED = 120;
-const SPAWN_MARGIN = 12;
 
-/** A small palette the motes are tinted from, so the field reads as danmaku. */
-const PALETTE: readonly [number, number, number][] = [
-  [0.45, 0.85, 1.0], // cyan
-  [1.0, 0.55, 0.9], // magenta
-  [1.0, 0.85, 0.45], // amber
-  [0.7, 0.7, 1.0], // periwinkle
-];
+/** Ticks each showcase pattern runs before the scene advances to the next. */
+export const PATTERN_TICKS = 150;
 
 export interface Simulation {
   /** Number of fixed steps executed so far. */
   readonly tick: number;
-  /** The SoA store backing the motes (first `moteCount` slots are live). */
-  readonly store: BulletStore;
-  readonly moteCount: number;
+  /** The bullet system (store + alive + highWater) the renderer draws. */
+  readonly system: BulletSystem;
   readonly playerX: number;
   readonly playerY: number;
   readonly playerRadius: number;
+  /** Name of the currently-running showcase pattern (for the HUD). */
+  readonly patternName: string;
   /** Advance the simulation by exactly one fixed step, given this tick's input. */
   step(input: InputFrame): void;
-  /** Bit-level fingerprint of the current state. */
+  /** Bit-level fingerprint of the current state (live slots only). */
   hash(): number;
 }
 
-export function createSimulation(seed: number, dt: number): Simulation {
+export function createSimulation(
+  seed: number,
+  dt: number,
+  patterns: readonly ScenePattern[],
+): Simulation {
   const rng = new Rng(seed);
-  const store = createBulletStore(MOTE_COUNT);
-  const playerBuf = new Float32Array(2);
+  const system = createBulletSystem(
+    { width: PLAYFIELD_W, height: PLAYFIELD_H, margin: CULL_MARGIN },
+    SIM_CAPACITY,
+  );
 
-  let tick = 0;
   let playerX = PLAYFIELD_W / 2;
   let playerY = PLAYFIELD_H * 0.8;
+  // The shared aim/home target. A stable object: emitters and the bullet update
+  // loop read it each tick; we mutate its fields in place rather than replacing it.
+  const target: Vec2 = { x: playerX, y: playerY };
 
-  // Spawn one mote into slot `i` at the top of the field with a fresh random
-  // position, downward velocity, and tint — pulling every value from the seeded
-  // RNG so respawns keep the deterministic stream churning.
-  const spawnMote = (i: number, atTop: boolean): void => {
-    store.x[i] = rng.range(0, PLAYFIELD_W);
-    store.y[i] = atTop ? -rng.range(0, SPAWN_MARGIN) : rng.range(0, PLAYFIELD_H);
-    store.vx[i] = rng.range(-40, 40);
-    store.vy[i] = rng.range(80, 180);
-    store.radius[i] = rng.range(2.5, 5);
-    const c = PALETTE[rng.u32() % PALETTE.length]!;
-    store.r[i] = c[0];
-    store.g[i] = c[1];
-    store.b[i] = c[2];
+  let tick = 0;
+  let patternIndex = -1;
+  let running: RunningEmitter | null = null;
+  const deps = { system, rng, target };
+
+  // The boss (emitter origin) sways along the top, driven by `tick` — never the
+  // wall-clock — so it stays deterministic.
+  const bossX = (tk: number): number =>
+    PLAYFIELD_W / 2 + Math.sin(tk * dt * 0.9) * PLAYFIELD_W * 0.28;
+  const bossY = (): number => PLAYFIELD_H * 0.16;
+
+  const startPattern = (idx: number, atTick: number): void => {
+    patternIndex = idx;
+    system.clear(); // hard cut between patterns; in-flight bullets clear (deterministic)
+    if (patterns.length === 0) {
+      running = null;
+      return;
+    }
+    running = startEmitter(patterns[idx].script, bossX(atTick), bossY(), atTick, deps);
   };
 
-  for (let i = 0; i < MOTE_COUNT; i++) spawnMote(i, false);
+  // Scratch for the live-slots-only hash; sized once, reused every call.
+  const sx = new Float32Array(SIM_CAPACITY);
+  const sy = new Float32Array(SIM_CAPACITY);
+  const svx = new Float32Array(SIM_CAPACITY);
+  const svy = new Float32Array(SIM_CAPACITY);
+  const sang = new Float32Array(SIM_CAPACITY);
+  const sbp0 = new Float32Array(SIM_CAPACITY);
+  const sbp1 = new Float32Array(SIM_CAPACITY);
+  const sbeh = new Float32Array(SIM_CAPACITY);
+  const sage = new Float32Array(SIM_CAPACITY);
+  const scalars = new Float32Array(7);
 
   const step = (input: InputFrame): void => {
+    // 1. Player from input.
     const speed = input.focus ? FOCUS_SPEED : PLAYER_SPEED;
     playerX += input.dx * speed * dt;
     playerY += input.dy * speed * dt;
@@ -83,38 +114,70 @@ export function createSimulation(seed: number, dt: number): Simulation {
     if (playerY < PLAYER_RADIUS) playerY = PLAYER_RADIUS;
     else if (playerY > PLAYFIELD_H - PLAYER_RADIUS) playerY = PLAYFIELD_H - PLAYER_RADIUS;
 
-    const { x, y, vx, vy } = store;
-    for (let i = 0; i < MOTE_COUNT; i++) {
-      x[i] += vx[i] * dt;
-      y[i] += vy[i] * dt;
-      // Reflect off the side walls (deterministic, no RNG).
-      if (x[i] < 0) {
-        x[i] = 0;
-        vx[i] = -vx[i];
-      } else if (x[i] > PLAYFIELD_W) {
-        x[i] = PLAYFIELD_W;
-        vx[i] = -vx[i];
+    // 2. Target tracks the player.
+    target.x = playerX;
+    target.y = playerY;
+
+    // 3. Scene cycle: advance to the next pattern on a tick boundary.
+    if (patterns.length > 0) {
+      const idx = Math.floor(tick / PATTERN_TICKS) % patterns.length;
+      if (idx !== patternIndex) startPattern(idx, tick);
+
+      // 4. Move the boss, then step the current emitter. (Writing the boss
+      // position into ctx each tick means the scene owns the boss path; a pattern
+      // that moves itself between yields would be overridden — fine for the
+      // showcase.)
+      if (running) {
+        running.ctx.x = bossX(tick);
+        running.ctx.y = bossY();
+        stepEmitter(running, tick);
       }
-      // Fall off the bottom → respawn at the top with fresh RNG values.
-      if (y[i] > PLAYFIELD_H + SPAWN_MARGIN) spawnMote(i, true);
     }
+
+    // 5. Advance bullets (homing reads the shared target), cull off-field.
+    system.update(dt, target.x, target.y);
 
     tick++;
   };
 
   const hash = (): number => {
-    playerBuf[0] = playerX;
-    playerBuf[1] = playerY;
-    const n = MOTE_COUNT;
+    const { x, y, vx, vy, angle, bp0, bp1, behavior, age } = system.store;
+    const alive = system.alive;
+    const hw = system.highWater;
+    // Compact live slots in slot order — deterministic because spawn/despawn
+    // order is deterministic — so dead-slot garbage never enters the fingerprint.
+    let n = 0;
+    for (let i = 0; i < hw; i++) {
+      if (alive[i] === 0) continue;
+      sx[n] = x[i];
+      sy[n] = y[i];
+      svx[n] = vx[i];
+      svy[n] = vy[i];
+      sang[n] = angle[i];
+      sbp0[n] = bp0[i];
+      sbp1[n] = bp1[i];
+      sbeh[n] = behavior[i];
+      sage[n] = age[i];
+      n++;
+    }
+    scalars[0] = tick;
+    scalars[1] = system.liveCount;
+    scalars[2] = playerX;
+    scalars[3] = playerY;
+    scalars[4] = patternIndex;
+    scalars[5] = running ? running.resumeTick : -1;
+    scalars[6] = running ? (running.done ? 1 : 0) : -1;
     return hashFloat32Arrays([
-      store.x.subarray(0, n),
-      store.y.subarray(0, n),
-      store.vx.subarray(0, n),
-      store.vy.subarray(0, n),
-      store.r.subarray(0, n),
-      store.g.subarray(0, n),
-      store.b.subarray(0, n),
-      playerBuf,
+      sx.subarray(0, n),
+      sy.subarray(0, n),
+      svx.subarray(0, n),
+      svy.subarray(0, n),
+      sang.subarray(0, n),
+      sbp0.subarray(0, n),
+      sbp1.subarray(0, n),
+      sbeh.subarray(0, n),
+      sage.subarray(0, n),
+      scalars,
     ]);
   };
 
@@ -122,8 +185,7 @@ export function createSimulation(seed: number, dt: number): Simulation {
     get tick() {
       return tick;
     },
-    store,
-    moteCount: MOTE_COUNT,
+    system,
     get playerX() {
       return playerX;
     },
@@ -131,6 +193,11 @@ export function createSimulation(seed: number, dt: number): Simulation {
       return playerY;
     },
     playerRadius: PLAYER_RADIUS,
+    get patternName() {
+      return patternIndex >= 0 && patternIndex < patterns.length
+        ? patterns[patternIndex].name
+        : "—";
+    },
     step,
     hash,
   };

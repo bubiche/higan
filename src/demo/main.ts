@@ -1,10 +1,13 @@
 import { createGL } from "../render/gl";
-import { createSimulation } from "../core/sim";
+import { createBulletRenderer, type Overlay } from "../render/bullets";
+import { createSimulation, PATTERN_TICKS } from "../core/sim";
 import { createSimDriver } from "../core/runtime";
 import { assertDeterministic } from "../core/determinism";
 import { PLAYFIELD_W, PLAYFIELD_H, DT } from "../core/playfield";
+import { Shape } from "../api";
 import { createKeyboardInput } from "./keyboard";
-import { createPointRenderer } from "./render";
+import { SHOWCASE } from "./patterns/showcase";
+import type { ScenePattern } from "../api";
 import type { InputFrame } from "../core/input";
 
 const CSS_SCALE = 1.6;
@@ -14,26 +17,29 @@ const canvas = document.getElementById("playfield") as HTMLCanvasElement;
 const hud = document.getElementById("hud") as HTMLDivElement;
 const gl = createGL(canvas);
 
-// Device pixels per sim unit; kept current by resize() and used to size points.
-let pxScale = CSS_SCALE;
-
 function resize(): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  pxScale = CSS_SCALE * dpr;
   canvas.style.width = `${PLAYFIELD_W * CSS_SCALE}px`;
   canvas.style.height = `${PLAYFIELD_H * CSS_SCALE}px`;
-  canvas.width = Math.round(PLAYFIELD_W * pxScale);
-  canvas.height = Math.round(PLAYFIELD_H * pxScale);
+  // Bullets are sized in sim units and projected through the GL viewport, so DPR
+  // is handled entirely here — no per-instance pixel scaling.
+  canvas.width = Math.round(PLAYFIELD_W * CSS_SCALE * dpr);
+  canvas.height = Math.round(PLAYFIELD_H * CSS_SCALE * dpr);
   gl.viewport(0, 0, canvas.width, canvas.height);
 }
 resize();
 window.addEventListener("resize", resize);
 
-// Continuous determinism guard: same seed + scripted input, twice, must hash
-// identically. Runs on every (re)load so any nondeterminism regression trips
-// immediately (Hard Rule 2).
+// The showcase patterns the scene cycles through. A reassignable binding so a
+// hot-reload can swap in edited pattern code (see the HMR hook below).
+let patterns: readonly ScenePattern[] = SHOWCASE;
+
+// The determinism run must span at least one full pattern cycle, or aimed/home
+// (the trig-and-target-dependent behaviours) never get exercised by the guard.
+// Sized to the cycle length plus headroom for a couple of added patterns.
 const scripted: InputFrame[] = [];
-for (let i = 0; i < 600; i++) {
+const scriptedTicks = PATTERN_TICKS * (patterns.length + 2);
+for (let i = 0; i < scriptedTicks; i++) {
   scripted.push({
     dx: ((i >> 4) % 3) - 1,
     dy: ((i >> 5) % 3) - 1,
@@ -42,46 +48,45 @@ for (let i = 0; i < 600; i++) {
     bomb: false,
   });
 }
-const det = assertDeterministic(SEED, scripted, DT);
+
+// Continuous determinism guard: same seed + scripted input + patterns, twice,
+// must hash identically. Runs on every (re)load so any nondeterminism regression
+// trips immediately (Hard Rule 2).
+const det = assertDeterministic(SEED, scripted, DT, patterns);
 console.info(
   `[higan] determinism OK — hash 0x${det.hashA.toString(16).padStart(8, "0")} over ${det.ticks} ticks`,
 );
 
-// Sim is recreated on backward-scrub, so it's a reassignable binding the driver
-// callbacks close over.
-let sim = createSimulation(SEED, DT);
+// Sim is recreated on backward-scrub / hot-reload, so it's a reassignable binding
+// the driver callbacks close over.
+let sim = createSimulation(SEED, DT, patterns);
 const keyboard = createKeyboardInput();
-const capacity = sim.moteCount + 1; // motes + player
-const points = createPointRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, capacity);
-const instance = new Float32Array(capacity * 6);
+const renderer = createBulletRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, sim.system.capacity);
+
+const playerMarker: Overlay = {
+  x: 0,
+  y: 0,
+  radius: 7,
+  color: [0.85, 0.95, 1.0],
+  sprite: Shape.BigOrb,
+};
 
 function render(): void {
   gl.clearColor(0.008, 0.012, 0.04, 1);
   gl.clear(gl.COLOR_BUFFER_BIT);
 
-  const { store, moteCount } = sim;
-  let o = 0;
-  for (let i = 0; i < moteCount; i++) {
-    instance[o++] = store.x[i];
-    instance[o++] = store.y[i];
-    instance[o++] = store.r[i];
-    instance[o++] = store.g[i];
-    instance[o++] = store.b[i];
-    instance[o++] = store.radius[i] * 2 * pxScale;
-  }
-  instance[o++] = sim.playerX;
-  instance[o++] = sim.playerY;
-  instance[o++] = 1.0;
-  instance[o++] = 1.0;
-  instance[o++] = 1.0;
-  instance[o++] = sim.playerRadius * 2 * pxScale;
-
-  points.draw(instance, capacity);
+  const { system } = sim;
+  playerMarker.x = sim.playerX;
+  playerMarker.y = sim.playerY;
+  const drawn = renderer.draw(system.store, system.alive, system.highWater, playerMarker);
 
   hud.textContent =
-    `tick  ${driver.tick}\n` +
-    `hash  0x${sim.hash().toString(16).padStart(8, "0")}\n` +
-    `speed ${driver.speed}x${driver.paused ? "   ❚❚ PAUSED" : ""}`;
+    `tick    ${driver.tick}\n` +
+    `pattern ${sim.patternName}\n` +
+    `bullets ${system.liveCount}\n` +
+    `drawn   ${drawn}\n` +
+    `hash    0x${sim.hash().toString(16).padStart(8, "0")}\n` +
+    `speed   ${driver.speed}x${driver.paused ? "   ❚❚ PAUSED" : ""}`;
 }
 
 const driver = createSimDriver({
@@ -89,7 +94,7 @@ const driver = createSimDriver({
   sampleInput: (tick) => keyboard.sample(tick),
   step: (input) => sim.step(input),
   rebuild: () => {
-    sim = createSimulation(SEED, DT);
+    sim = createSimulation(SEED, DT, patterns);
   },
   render,
 });
@@ -119,3 +124,16 @@ window.addEventListener("keydown", (e) => {
       break;
   }
 });
+
+// Hot-reload: when the pattern module is edited, swap in the new code, re-check
+// determinism against it (the purity invariant's edit-time tripwire), then
+// rebuild + replay to the current tick so the scene continues with the new code.
+if (import.meta.hot) {
+  import.meta.hot.accept("./patterns/showcase", (mod) => {
+    if (!mod) return;
+    patterns = (mod as unknown as { SHOWCASE: readonly ScenePattern[] }).SHOWCASE;
+    assertDeterministic(SEED, scripted, DT, patterns);
+    driver.resync();
+    console.info("[higan] patterns hot-reloaded");
+  });
+}

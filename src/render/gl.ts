@@ -1,6 +1,8 @@
 // Minimal raw-WebGL2 helpers. No framework — full control over the instanced
 // bullet batcher matters more than convenience here.
 
+import { SHAPE_COUNT, SHAPE_DRAWERS } from "./shapes";
+
 export function createGL(canvas: HTMLCanvasElement): WebGL2RenderingContext {
   const gl = canvas.getContext("webgl2", {
     alpha: false,
@@ -57,5 +59,54 @@ export function createGlowTexture(gl: WebGL2RenderingContext, size = 64): WebGLT
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return tex;
+}
+
+// The bullet shape atlas: one `TEXTURE_2D_ARRAY` layer per shape, each drawn
+// procedurally on a 2D canvas (same no-assets approach as the glow disc above).
+// The renderer samples it by a per-instance layer index, so all shapes draw in
+// one instanced call. Layers are in `Shape` order (see shapes.ts).
+export function createShapeAtlas(gl: WebGL2RenderingContext, size = 64): WebGLTexture {
+  const tex = gl.createTexture()!;
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
+  gl.texImage3D(
+    gl.TEXTURE_2D_ARRAY,
+    0,
+    gl.RGBA,
+    size,
+    size,
+    SHAPE_COUNT,
+    0,
+    gl.RGBA,
+    gl.UNSIGNED_BYTE,
+    null,
+  );
+
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d")!;
+  for (let layer = 0; layer < SHAPE_COUNT; layer++) {
+    ctx.clearRect(0, 0, size, size);
+    SHAPE_DRAWERS[layer]!(ctx, size);
+    gl.texSubImage3D(
+      gl.TEXTURE_2D_ARRAY,
+      0,
+      0,
+      0,
+      layer,
+      size,
+      size,
+      1,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      c,
+    );
+  }
+
+  gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   return tex;
 }
