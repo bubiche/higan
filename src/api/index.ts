@@ -24,8 +24,9 @@ export type {
   RingOpts,
   FanOpts,
   AimedOpts,
+  LaserOpts,
   Vec2,
 } from "./emitter";
 
-export { linear, accelerate, ramp, home, type BulletBehavior } from "./controllers";
+export { linear, accelerate, ramp, home, delay, wave, type BulletBehavior } from "./controllers";
 export { Shape } from "../render/shapes";

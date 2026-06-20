@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Higan — bullet stress</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; height: 100%; background: #07080d;
+        font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #aeb6c8; }
+      #stage { display: flex; align-items: center; justify-content: center; min-height: 100%; }
+      #field { position: relative; }
+      canvas { display: block; background: #02030a;
+        box-shadow: 0 0 0 1px #1c2233, 0 0 40px #0a1430; }
+      #hud { position: absolute; top: 8px; left: 8px; pointer-events: none;
+        white-space: pre; text-shadow: 0 1px 2px #000; opacity: 0.92; }
+      .pass { color: #6ee7a0; }
+      .fail { color: #ff6b81; }
+      #help { position: absolute; bottom: 8px; left: 8px; right: 8px;
+        pointer-events: none; opacity: 0.6; text-shadow: 0 1px 2px #000; }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <div id="field">
+        <canvas id="playfield"></canvas>
+        <div id="hud"></div>
+        <div id="help">+/- : target bullets · &nbsp; p99 ≤ 16.6ms = holding 60fps</div>
+      </div>
+    </div>
+    <script type="module" src="/src/demo/bench.ts"></script>
+  </body>
+</html>

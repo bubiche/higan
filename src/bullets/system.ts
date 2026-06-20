@@ -38,6 +38,10 @@ export const Behavior = {
   Ramp: 2,
   /** Steer heading toward the shared target, up to `bp0` rad/s, keeping speed. */
   Home: 3,
+  /** Hold in place for `bp0` ticks, then launch at speed `bp1` along `angle`. */
+  Delay: 4,
+  /** Weave sideways: lateral offset `bp0`*sin(`bp1`*age*dt) about the heading. */
+  Wave: 5,
 } as const;
 export type Behavior = (typeof Behavior)[keyof typeof Behavior];
 
@@ -184,6 +188,24 @@ export function createBulletSystem(
             vx[i] = Math.cos(an) * sp;
             vy[i] = Math.sin(an) * sp;
             angle[i] = an;
+          } else if (beh === Behavior.Delay) {
+            // Held at spawn with vx=vy=0. On the launch tick, fire at the stashed
+            // speed (bp1) along the stored heading, then become a plain Linear
+            // bullet so subsequent ticks take the fast path.
+            if (age[i] >= bp0[i]) {
+              vx[i] = Math.cos(angle[i]) * bp1[i];
+              vy[i] = Math.sin(angle[i]) * bp1[i];
+              behavior[i] = Behavior.Linear;
+            }
+          } else if (beh === Behavior.Wave) {
+            // Sine weave perpendicular to the (constant) heading. vx/vy carry the
+            // forward velocity untouched; we add only the per-tick lateral delta,
+            // so the cumulative offset telescopes to bp0*sin(bp1*age*dt) — a clean
+            // ±bp0 snake. Two sins/frame, paid only over wave bullets.
+            const t = age[i] * dt;
+            const dLat = bp0[i] * (Math.sin(bp1[i] * t) - Math.sin(bp1[i] * (t - dt)));
+            x[i] += -Math.sin(angle[i]) * dLat;
+            y[i] += Math.cos(angle[i]) * dLat;
           }
         }
 

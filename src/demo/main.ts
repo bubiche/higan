@@ -1,5 +1,6 @@
 import { createGL } from "../render/gl";
 import { createBulletRenderer, type Overlay } from "../render/bullets";
+import { createLaserRenderer } from "../render/lasers";
 import { createSimulation, PATTERN_TICKS } from "../core/sim";
 import { createSimDriver } from "../core/runtime";
 import { assertDeterministic } from "../core/determinism";
@@ -62,6 +63,7 @@ console.info(
 let sim = createSimulation(SEED, DT, patterns);
 const keyboard = createKeyboardInput();
 const renderer = createBulletRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, sim.system.capacity);
+const laserRenderer = createLaserRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, sim.lasers.lasers.length);
 
 const playerMarker: Overlay = {
   x: 0,
@@ -78,12 +80,15 @@ function render(): void {
   const { system } = sim;
   playerMarker.x = sim.playerX;
   playerMarker.y = sim.playerY;
+  // Beams first (behind the bullet glow); both draw additively.
+  const beams = laserRenderer.draw(sim.lasers.lasers);
   const drawn = renderer.draw(system.store, system.alive, system.highWater, playerMarker);
 
   hud.textContent =
     `tick    ${driver.tick}\n` +
     `pattern ${sim.patternName}\n` +
     `bullets ${system.liveCount}\n` +
+    `beams   ${beams}\n` +
     `drawn   ${drawn}\n` +
     `hash    0x${sim.hash().toString(16).padStart(8, "0")}\n` +
     `speed   ${driver.speed}x${driver.paused ? "   ❚❚ PAUSED" : ""}`;

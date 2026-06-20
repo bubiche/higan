@@ -21,11 +21,17 @@ export const Shape = {
   BigOrb: 3,
   Kunai: 4,
   Star: 5,
+  Ofuda: 6,
+  Scale: 7,
+  Crystal: 8,
+  Bubble: 9,
+  Heart: 10,
+  Butterfly: 11,
 } as const;
 export type Shape = (typeof Shape)[keyof typeof Shape];
 
 /** Number of atlas layers. Drawers below must be listed in `Shape` order. */
-export const SHAPE_COUNT = 6;
+export const SHAPE_COUNT = 12;
 
 type Drawer = (ctx: CanvasRenderingContext2D, size: number) => void;
 
@@ -48,6 +54,38 @@ function softEllipse(ctx: CanvasRenderingContext2D, size: number, sx: number, sy
   ctx.translate(size / 2, size / 2);
   ctx.scale(sx, sy);
   softDisc(ctx, 0, 0, r);
+  ctx.restore();
+}
+
+/** A hollow ring: bright at the rim, near-empty in the middle (the "bubble" orb). */
+function softRing(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number): void {
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+  g.addColorStop(0.0, "rgba(255,255,255,0.12)");
+  g.addColorStop(0.55, "rgba(255,255,255,0.08)");
+  g.addColorStop(0.82, "rgba(255,255,255,1.0)");
+  g.addColorStop(1.0, "rgba(255,255,255,0.0)");
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** A crisp white filled ellipse with a soft glow halo (a wing lobe / body). */
+function glowEllipse(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+  rot: number,
+): void {
+  ctx.save();
+  ctx.shadowColor = "rgba(255,255,255,0.9)";
+  ctx.shadowBlur = 5;
+  ctx.fillStyle = "rgba(255,255,255,1.0)";
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx, ry, rot, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 
@@ -100,5 +138,62 @@ export const SHAPE_DRAWERS: readonly Drawer[] = [
       pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
     }
     glowPoly(ctx, pts);
+  },
+  // Ofuda — a rectangular talisman/card elongated along +x (travels long-edge first).
+  (ctx, s) =>
+    glowPoly(ctx, [
+      [s * 0.2, s * 0.34],
+      [s * 0.8, s * 0.34],
+      [s * 0.8, s * 0.66],
+      [s * 0.2, s * 0.66],
+    ]),
+  // Scale — a compact rounded diamond/kite, the common mid-density filler.
+  (ctx, s) =>
+    glowPoly(ctx, [
+      [s * 0.8, s * 0.5],
+      [s * 0.5, s * 0.3],
+      [s * 0.2, s * 0.5],
+      [s * 0.5, s * 0.7],
+    ]),
+  // Crystal — a long, sharp shard pointing +x (thinner and longer than the scale).
+  (ctx, s) =>
+    glowPoly(ctx, [
+      [s * 0.92, s * 0.5],
+      [s * 0.5, s * 0.4],
+      [s * 0.08, s * 0.5],
+      [s * 0.5, s * 0.6],
+    ]),
+  // Bubble — a large hollow/outlined orb (the "soul" ball).
+  (ctx, s) => softRing(ctx, s / 2, s / 2, s * 0.48),
+  // Heart — tip drawn toward +x so velocity-rotation makes a falling heart point
+  // down (the Touhou convention). Built from two bezier lobes about the +x axis.
+  (ctx, s) => {
+    const cx = s / 2;
+    const cy = s / 2;
+    const a = s * 0.36;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(-Math.PI / 2); // upright (tip-down) heart → tip points +x
+    ctx.shadowColor = "rgba(255,255,255,0.9)";
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = "rgba(255,255,255,1.0)";
+    ctx.beginPath();
+    ctx.moveTo(0, a * 0.6); // bottom tip
+    ctx.bezierCurveTo(a * 1.1, -a * 0.1, a * 0.55, -a * 0.95, 0, -a * 0.35);
+    ctx.bezierCurveTo(-a * 0.55, -a * 0.95, -a * 1.1, -a * 0.1, 0, a * 0.6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  },
+  // Butterfly — a static silhouette (the atlas is single-frame, so it can't flap;
+  // best fired large + slow as a spell bullet). Body along +x, two wing pairs.
+  (ctx, s) => {
+    const cx = s / 2;
+    const cy = s / 2;
+    glowEllipse(ctx, cx + s * 0.12, cy - s * 0.16, s * 0.24, s * 0.17, -0.4); // fore, upper
+    glowEllipse(ctx, cx + s * 0.12, cy + s * 0.16, s * 0.24, s * 0.17, 0.4); // fore, lower
+    glowEllipse(ctx, cx - s * 0.16, cy - s * 0.12, s * 0.18, s * 0.13, 0.4); // hind, upper
+    glowEllipse(ctx, cx - s * 0.16, cy + s * 0.12, s * 0.18, s * 0.13, -0.4); // hind, lower
+    glowEllipse(ctx, cx, cy, s * 0.28, s * 0.05, 0); // body
   },
 ];

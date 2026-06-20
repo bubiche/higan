@@ -19,6 +19,7 @@
 import { Rng } from "./prng";
 import { hashFloat32Arrays } from "./hash";
 import { createBulletSystem, type BulletSystem } from "../bullets/system";
+import { createLaserSystem, type LaserSystem } from "../touhou/laser";
 import {
   startEmitter,
   stepEmitter,
@@ -30,6 +31,7 @@ import { PLAYFIELD_W, PLAYFIELD_H } from "./playfield";
 import type { InputFrame } from "./input";
 
 const SIM_CAPACITY = 4096;
+const LASER_CAPACITY = 64;
 const CULL_MARGIN = 16;
 const PLAYER_RADIUS = 6;
 const PLAYER_SPEED = 260; // sim units / second
@@ -43,6 +45,8 @@ export interface Simulation {
   readonly tick: number;
   /** The bullet system (store + alive + highWater) the renderer draws. */
   readonly system: BulletSystem;
+  /** The laser system (the pool of straight beams) the renderer draws. */
+  readonly lasers: LaserSystem;
   readonly playerX: number;
   readonly playerY: number;
   readonly playerRadius: number;
@@ -64,6 +68,7 @@ export function createSimulation(
     { width: PLAYFIELD_W, height: PLAYFIELD_H, margin: CULL_MARGIN },
     SIM_CAPACITY,
   );
+  const lasers = createLaserSystem(LASER_CAPACITY);
 
   let playerX = PLAYFIELD_W / 2;
   let playerY = PLAYFIELD_H * 0.8;
@@ -74,7 +79,7 @@ export function createSimulation(
   let tick = 0;
   let patternIndex = -1;
   let running: RunningEmitter | null = null;
-  const deps = { system, rng, target };
+  const deps = { system, lasers, rng, target };
 
   // The boss (emitter origin) sways along the top, driven by `tick` — never the
   // wall-clock — so it stays deterministic.
@@ -84,7 +89,9 @@ export function createSimulation(
 
   const startPattern = (idx: number, atTick: number): void => {
     patternIndex = idx;
-    system.clear(); // hard cut between patterns; in-flight bullets clear (deterministic)
+    // Hard cut between patterns; in-flight bullets and beams clear (deterministic).
+    system.clear();
+    lasers.clear();
     if (patterns.length === 0) {
       running = null;
       return;
@@ -102,7 +109,15 @@ export function createSimulation(
   const sbp1 = new Float32Array(SIM_CAPACITY);
   const sbeh = new Float32Array(SIM_CAPACITY);
   const sage = new Float32Array(SIM_CAPACITY);
-  const scalars = new Float32Array(7);
+  // Laser scratch (live beams, packed in pool order — deterministic).
+  const lx = new Float32Array(LASER_CAPACITY);
+  const ly = new Float32Array(LASER_CAPACITY);
+  const lang = new Float32Array(LASER_CAPACITY);
+  const llen = new Float32Array(LASER_CAPACITY);
+  const lwid = new Float32Array(LASER_CAPACITY);
+  const lspin = new Float32Array(LASER_CAPACITY);
+  const lage = new Float32Array(LASER_CAPACITY);
+  const scalars = new Float32Array(8);
 
   const step = (input: InputFrame): void => {
     // 1. Player from input.
@@ -136,6 +151,8 @@ export function createSimulation(
 
     // 5. Advance bullets (homing reads the shared target), cull off-field.
     system.update(dt, target.x, target.y);
+    // 6. Advance beams (age the telegraph→fire→fade lifecycle, sweep, despawn).
+    lasers.update(dt);
 
     tick++;
   };
@@ -160,6 +177,21 @@ export function createSimulation(
       sage[n] = age[i];
       n++;
     }
+    // Compact live beams in pool order (same rationale as bullet slots above).
+    const pool = lasers.lasers;
+    let m = 0;
+    for (let i = 0; i < pool.length; i++) {
+      const l = pool[i];
+      if (!l.alive) continue;
+      lx[m] = l.x;
+      ly[m] = l.y;
+      lang[m] = l.angle;
+      llen[m] = l.length;
+      lwid[m] = l.width;
+      lspin[m] = l.spin;
+      lage[m] = l.age;
+      m++;
+    }
     scalars[0] = tick;
     scalars[1] = system.liveCount;
     scalars[2] = playerX;
@@ -167,6 +199,7 @@ export function createSimulation(
     scalars[4] = patternIndex;
     scalars[5] = running ? running.resumeTick : -1;
     scalars[6] = running ? (running.done ? 1 : 0) : -1;
+    scalars[7] = lasers.liveCount;
     return hashFloat32Arrays([
       sx.subarray(0, n),
       sy.subarray(0, n),
@@ -177,6 +210,13 @@ export function createSimulation(
       sbp1.subarray(0, n),
       sbeh.subarray(0, n),
       sage.subarray(0, n),
+      lx.subarray(0, m),
+      ly.subarray(0, m),
+      lang.subarray(0, m),
+      llen.subarray(0, m),
+      lwid.subarray(0, m),
+      lspin.subarray(0, m),
+      lage.subarray(0, m),
       scalars,
     ]);
   };
@@ -186,6 +226,7 @@ export function createSimulation(
       return tick;
     },
     system,
+    lasers,
     get playerX() {
       return playerX;
     },

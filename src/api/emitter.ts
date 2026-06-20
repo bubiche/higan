@@ -24,6 +24,7 @@ import type { BulletSystem } from "../bullets/system";
 import { Behavior } from "../bullets/system";
 import type { Rng } from "../core/prng";
 import { Shape } from "../render/shapes";
+import type { LaserSystem } from "../touhou/laser";
 import type { BulletBehavior } from "./controllers";
 import { linear } from "./controllers";
 
@@ -74,6 +75,31 @@ export interface AimedOpts extends SpawnOpts {
   spread?: number;
 }
 
+/**
+ * A straight beam laser fired from the emitter. Unlike a bullet, a laser persists
+ * for its own telegraph→fire→fade lifecycle; the emitter fires it once and the
+ * sim owns it from there. Spawned at the emitter position (or an explicit x/y).
+ */
+export interface LaserOpts {
+  /** Beam origin; defaults to the emitter position (ctx.x, ctx.y). */
+  x?: number;
+  y?: number;
+  /** Heading in radians (0 = +x). */
+  angle: number;
+  /** Beam length in sim units. */
+  length: number;
+  /** Fired beam width (full thickness) in sim units. Default 12. */
+  width?: number;
+  /** Linear RGB tint, 0..1. Defaults to white. */
+  color?: readonly [number, number, number];
+  /** Warning-line phase length in ticks before the beam fires. Default 36. */
+  telegraph?: number;
+  /** Fired phase length in ticks; the beam vanishes after it. Default 90. */
+  duration?: number;
+  /** Sweep rate in radians/second about the origin. Default 0 (static). */
+  spin?: number;
+}
+
 export interface EmitterContext {
   /** Current sim tick. */
   readonly tick: number;
@@ -88,6 +114,7 @@ export interface EmitterContext {
   ring(o: RingOpts): void;
   fan(o: FanOpts): void;
   aimed(o: AimedOpts): void;
+  laser(o: LaserOpts): void;
 }
 
 /**
@@ -116,13 +143,14 @@ export interface RunningEmitter {
 
 export interface EmitterDeps {
   readonly system: BulletSystem;
+  readonly lasers: LaserSystem;
   readonly rng: Rng;
   /** Shared target the scheduler keeps current; `aimed`/home read it. */
   readonly target: Readonly<Vec2>;
 }
 
 function makeContext(deps: EmitterDeps): EmitterContext {
-  const { system, rng, target } = deps;
+  const { system, lasers, rng, target } = deps;
 
   // Spawn one bullet from already-resolved primitives. Accelerate is the one
   // behaviour whose stored params depend on the launch angle: its acceleration is
@@ -140,15 +168,23 @@ function makeContext(deps: EmitterDeps): EmitterContext {
   ): void => {
     let bp0 = beh.bp0;
     let bp1 = beh.bp1;
+    let vx = Math.cos(angle) * speed;
+    let vy = Math.sin(angle) * speed;
     if (beh.behavior === Behavior.Accelerate) {
       bp0 = Math.cos(angle) * beh.bp0;
       bp1 = Math.sin(angle) * beh.bp0;
+    } else if (beh.behavior === Behavior.Delay) {
+      // Hold at the spawn point; stash the launch speed (bp1) for the system to
+      // apply along `angle` once the delay elapses.
+      vx = 0;
+      vy = 0;
+      bp1 = speed;
     }
     system.spawn(
       x,
       y,
-      Math.cos(angle) * speed,
-      Math.sin(angle) * speed,
+      vx,
+      vy,
       angle,
       radius,
       color[0],
@@ -228,6 +264,22 @@ function makeContext(deps: EmitterDeps): EmitterContext {
       for (let i = 0; i < count; i++) {
         emit(x, y, o.speed, start + i * step, radius, color, sprite, beh);
       }
+    },
+    laser(o) {
+      const color = o.color ?? WHITE;
+      lasers.spawn({
+        x: o.x ?? ctx.x,
+        y: o.y ?? ctx.y,
+        angle: o.angle,
+        length: o.length,
+        width: o.width ?? 12,
+        r: color[0],
+        g: color[1],
+        b: color[2],
+        spin: o.spin ?? 0,
+        telegraph: o.telegraph ?? 36,
+        duration: o.duration ?? 90,
+      });
     },
   };
   return ctx;

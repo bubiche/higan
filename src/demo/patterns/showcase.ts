@@ -12,8 +12,10 @@ import {
   type EmitterScript,
   type ScenePattern,
   accelerate,
+  delay,
   home,
   ramp,
+  wave,
   Shape,
 } from "../../api";
 
@@ -117,6 +119,114 @@ const rampPattern: EmitterScript = function* (ctx) {
   }
 };
 
+/** Suspended rings that hang in the air, then snap outward all at once. */
+const delayPattern: EmitterScript = function* (ctx) {
+  let phase = 0;
+  while (true) {
+    ctx.ring({
+      count: 24,
+      speed: 165,
+      angle: phase,
+      radius: 4,
+      color: AMBER,
+      sprite: Shape.Orb,
+      behavior: delay(38),
+    });
+    phase += 0.39;
+    yield 26;
+  }
+};
+
+/** Snaking streams — tight rings of bullets that weave as they spread (fake-laser feel). */
+const wavePattern: EmitterScript = function* (ctx) {
+  let phase = 0;
+  while (true) {
+    ctx.ring({
+      count: 6,
+      speed: 95,
+      angle: phase,
+      radius: 5,
+      color: CYAN,
+      sprite: Shape.Orb,
+      behavior: wave(16, 8),
+    });
+    phase += 0.17;
+    yield 4;
+  }
+};
+
+/** A sweeping rake of straight beams — telegraph, fire, sweep — with aimed
+ *  bullets filling the gaps while the next volley warns up. */
+const laserPattern: EmitterScript = function* (ctx) {
+  let dir = 1;
+  while (true) {
+    const n = 5;
+    const centre = Math.PI / 2; // downward
+    const spread = 1.1;
+    for (let i = 0; i < n; i++) {
+      const a = centre - spread / 2 + (i / (n - 1)) * spread;
+      ctx.laser({
+        angle: a,
+        length: 620,
+        width: 13,
+        color: i % 2 === 0 ? MAGENTA : VIOLET,
+        telegraph: 42,
+        duration: 96,
+        spin: dir * 0.18,
+      });
+    }
+    dir = -dir;
+    for (let k = 0; k < 6; k++) {
+      ctx.aimed({ count: 3, speed: 110, spread: 0.4, radius: 4, color: CYAN, sprite: Shape.Orb });
+      yield 18;
+    }
+  }
+};
+
+/** A slow rotating ring that cycles the hard-edged shapes (ofuda, scale, crystal,
+ *  bubble) — purely to show the procedural shape set, one colour per shape. */
+const shapesPattern: EmitterScript = function* (ctx) {
+  const shapes = [Shape.Ofuda, Shape.Scale, Shape.Crystal, Shape.Bubble];
+  const colors = [AMBER, GREEN, CYAN, VIOLET];
+  let phase = 0;
+  while (true) {
+    const count = 16;
+    for (let i = 0; i < count; i++) {
+      const k = i % shapes.length;
+      ctx.fire({
+        speed: 80,
+        angle: phase + (i / count) * Math.PI * 2,
+        radius: 6,
+        color: colors[k],
+        sprite: shapes[k],
+      });
+    }
+    phase += 0.14;
+    yield 9;
+  }
+};
+
+/** Big, slow hearts and butterflies — the spell-flavor shapes, fired large so the
+ *  butterfly silhouette reads (it's a single static frame; it can't flap). */
+const flutterPattern: EmitterScript = function* (ctx) {
+  let phase = 0;
+  while (true) {
+    const count = 8;
+    for (let i = 0; i < count; i++) {
+      const even = i % 2 === 0;
+      ctx.fire({
+        speed: 55,
+        angle: phase + (i / count) * Math.PI * 2,
+        radius: 13,
+        color: even ? MAGENTA : VIOLET,
+        sprite: even ? Shape.Heart : Shape.Butterfly,
+      });
+    }
+    phase += 0.2;
+    yield 16;
+  }
+};
+
 /** The patterns the showcase scene cycles through, in order. */
 export const SHOWCASE: readonly ScenePattern[] = [
   { name: "ring", script: ringPattern },
@@ -125,4 +235,9 @@ export const SHOWCASE: readonly ScenePattern[] = [
   { name: "aimed", script: aimedPattern },
   { name: "home", script: homePattern },
   { name: "ramp", script: rampPattern },
+  { name: "delay", script: delayPattern },
+  { name: "wave", script: wavePattern },
+  { name: "laser", script: laserPattern },
+  { name: "shapes", script: shapesPattern },
+  { name: "flutter", script: flutterPattern },
 ];

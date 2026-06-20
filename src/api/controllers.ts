@@ -55,3 +55,23 @@ export function ramp(dSpeed: number, dAngle: number): BulletBehavior {
 export function home(turnRate: number): BulletBehavior {
   return { behavior: Behavior.Home, bp0: turnRate, bp1: 0 };
 }
+
+/**
+ * Hang motionless at the spawn point for `ticks` fixed steps, then launch along
+ * the spawn heading at the spawn call's `speed` — the classic "appear, pause,
+ * snap". After launching it is an ordinary linear bullet. The launch speed is the
+ * spawn `speed`, so don't pass it here; `bp1` is filled in at spawn.
+ */
+export function delay(ticks: number): BulletBehavior {
+  return { behavior: Behavior.Delay, bp0: ticks, bp1: 0 };
+}
+
+/**
+ * Snake: weave side to side by up to `amplitude` (sim units) perpendicular to the
+ * heading, oscillating at `frequency` (radians/second), while still travelling
+ * forward at the spawn `speed`. A tight, fast stream of these reads as a curvy
+ * "fake laser".
+ */
+export function wave(amplitude: number, frequency: number): BulletBehavior {
+  return { behavior: Behavior.Wave, bp0: amplitude, bp1: frequency };
+}
