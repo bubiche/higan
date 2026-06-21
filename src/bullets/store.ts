@@ -36,6 +36,10 @@ export interface BulletStore {
   readonly bp1: Float32Array;
   /** Ticks alive. Incremented each update; for time-gated behaviours. */
   readonly age: Uint16Array;
+  /** 1 once this bullet has been grazed, so graze counts once per lifetime and a
+   *  bullet lingering in graze range can't re-count. Cleared at spawn (a reused
+   *  slot must not inherit a stale bit). Read-only data the player pass writes. */
+  readonly grazed: Uint8Array;
 }
 
 export function createBulletStore(capacity: number = MAX_BULLETS): BulletStore {
@@ -55,5 +59,6 @@ export function createBulletStore(capacity: number = MAX_BULLETS): BulletStore {
     bp0: new Float32Array(capacity),
     bp1: new Float32Array(capacity),
     age: new Uint16Array(capacity),
+    grazed: new Uint8Array(capacity),
   };
 }

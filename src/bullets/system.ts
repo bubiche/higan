@@ -99,7 +99,7 @@ export function createBulletSystem(
   capacity: number = MAX_BULLETS,
 ): BulletSystem {
   const store = createBulletStore(capacity);
-  const { x, y, vx, vy, angle, radius, r, g, b, sprite, behavior, bp0, bp1, age } = store;
+  const { x, y, vx, vy, angle, radius, r, g, b, sprite, behavior, bp0, bp1, age, grazed } = store;
   const alive = new Uint8Array(capacity);
   // Stack of free slot indices; `freeTop` is the number of entries in use.
   const freeStack = new Int32Array(capacity);
@@ -147,6 +147,8 @@ export function createBulletSystem(
       bp0[slot] = sbp0;
       bp1[slot] = sbp1;
       age[slot] = 0;
+      // A reused slot must not inherit the previous bullet's graze bit.
+      grazed[slot] = 0;
       return slot;
     },
     despawn(slot): void {

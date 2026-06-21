@@ -94,6 +94,7 @@ function render(): void {
     `bullets ${system.liveCount}\n` +
     `beams   ${beams}\n` +
     `drawn   ${drawn}\n` +
+    `graze   ${sim.player.graze}\n` +
     `hash    0x${sim.hash().toString(16).padStart(8, "0")}\n` +
     `speed   ${driver.speed}x${driver.paused ? "   ❚❚ PAUSED" : ""}`;
 }

@@ -36,6 +36,7 @@ import {
   type Player,
   type PlayerConfig,
 } from "../touhou/player";
+import { stepCollision } from "../touhou/collision";
 
 const SIM_CAPACITY = 4096;
 const LASER_CAPACITY = 64;
@@ -114,6 +115,7 @@ export function createSimulation(
   const sbp1 = new Float32Array(SIM_CAPACITY);
   const sbeh = new Float32Array(SIM_CAPACITY);
   const sage = new Float32Array(SIM_CAPACITY);
+  const sgrazed = new Float32Array(SIM_CAPACITY);
   // Laser scratch (live beams, packed in pool order — deterministic).
   const lx = new Float32Array(LASER_CAPACITY);
   const ly = new Float32Array(LASER_CAPACITY);
@@ -155,12 +157,15 @@ export function createSimulation(
     system.update(dt, target.x, target.y);
     // 6. Advance beams (age the telegraph→fire→fade lifecycle, sweep, despawn).
     lasers.update(dt);
+    // 7. Player-vs-field pass (graze now; the hit/death response builds on it).
+    //    Read-only over the bullet store; consumes no randomness.
+    stepCollision(player, system, config);
 
     tick++;
   };
 
   const hash = (): number => {
-    const { x, y, vx, vy, angle, bp0, bp1, behavior, age } = system.store;
+    const { x, y, vx, vy, angle, bp0, bp1, behavior, age, grazed } = system.store;
     const alive = system.alive;
     const hw = system.highWater;
     // Compact live slots in slot order — deterministic because spawn/despawn
@@ -177,6 +182,7 @@ export function createSimulation(
       sbp1[n] = bp1[i];
       sbeh[n] = behavior[i];
       sage[n] = age[i];
+      sgrazed[n] = grazed[i];
       n++;
     }
     // Compact live beams in pool order (same rationale as bullet slots above).
@@ -222,6 +228,7 @@ export function createSimulation(
       sbp1.subarray(0, n),
       sbeh.subarray(0, n),
       sage.subarray(0, n),
+      sgrazed.subarray(0, n),
       lx.subarray(0, m),
       ly.subarray(0, m),
       lang.subarray(0, m),
