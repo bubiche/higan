@@ -100,10 +100,11 @@ function render(): void {
 
 const driver = createSimDriver({
   dt: DT,
+  seed: SEED,
   sampleInput: (tick) => keyboard.sample(tick),
   step: (input) => sim.step(input),
-  rebuild: () => {
-    sim = createSimulation(SEED, DT, patterns, RUN_CONFIG);
+  rebuild: (seed) => {
+    sim = createSimulation(seed, DT, patterns, RUN_CONFIG);
   },
   render,
 });

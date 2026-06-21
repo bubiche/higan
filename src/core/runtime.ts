@@ -17,15 +17,20 @@
 
 import { startAnimationLoop, type LoopHandle } from "./loop";
 import type { InputFrame } from "./input";
+import type { Replay } from "../touhou/replay";
 
 export interface SimDriverOptions {
   readonly dt: number;
+  /** Seed the run starts under. The driver owns it (alongside the input log) so a
+   *  loaded replay can swap it; `rebuild` is handed the current seed to rebuild from. */
+  readonly seed: number;
   /** Produce live input for a tick not yet in the log. Called at most once per tick. */
   sampleInput: (tick: number) => InputFrame;
   /** Advance the simulation by exactly one fixed step. */
   step: (input: InputFrame) => void;
-  /** Reset the simulation to its initial (tick 0) state. Needed for backward-scrub. */
-  rebuild: () => void;
+  /** Reset the simulation to its initial (tick 0) state, built from `seed`. Needed
+   *  for backward-scrub, resync, and replay load. */
+  rebuild: (seed: number) => void;
   /** Draw the current state. Called once per rendered frame, including while paused. */
   render: () => void;
   /** Cap on steps per rendered frame, to avoid a spiral of death after a stall. */
@@ -50,6 +55,11 @@ export interface SimDriver {
    * emitter generators deterministically).
    */
   resync(): void;
+  /** Snapshot the current run as a replay (seed + the full recorded input log). */
+  getRecording(): Replay;
+  /** Load a replay: adopt its seed + frames, rebuild from the seed, and replay the
+   *  frames so the sim lands at the end of the recording (paused). */
+  loadRecording(replay: Replay): void;
   /** Set the slow-motion multiplier (1 = real time, 0.25 = quarter speed). */
   setSpeed(mult: number): void;
   stop(): void;
@@ -60,6 +70,7 @@ export function createSimDriver(opts: SimDriverOptions): SimDriver {
   const maxSteps = opts.maxStepsPerFrame ?? 5;
 
   const inputLog: InputFrame[] = [];
+  let seed = opts.seed;
   let tick = 0;
   let acc = 0;
   let paused = false;
@@ -123,7 +134,7 @@ export function createSimDriver(opts: SimDriverOptions): SimDriver {
       paused = true;
       acc = 0;
       const target = tick - 1;
-      rebuild();
+      rebuild(seed);
       tick = 0;
       while (tick < target) advanceOne();
       render();
@@ -131,8 +142,24 @@ export function createSimDriver(opts: SimDriverOptions): SimDriver {
     resync(): void {
       acc = 0;
       const target = tick;
-      rebuild();
+      rebuild(seed);
       tick = 0;
+      while (tick < target) advanceOne();
+      render();
+    },
+    getRecording(): Replay {
+      // Copy so callers can't mutate the live log.
+      return { seed, frames: inputLog.slice() };
+    },
+    loadRecording(replay: Replay): void {
+      paused = true;
+      acc = 0;
+      seed = replay.seed;
+      inputLog.length = 0;
+      for (let i = 0; i < replay.frames.length; i++) inputLog.push(replay.frames[i]!);
+      rebuild(seed);
+      tick = 0;
+      const target = inputLog.length;
       while (tick < target) advanceOne();
       render();
     },
