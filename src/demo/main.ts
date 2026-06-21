@@ -8,11 +8,15 @@ import { PLAYFIELD_W, PLAYFIELD_H, DT } from "../core/playfield";
 import { Shape } from "../api";
 import { createKeyboardInput } from "./keyboard";
 import { SHOWCASE } from "./patterns/showcase";
+import { DEFAULT_PLAYER_CONFIG } from "../touhou/player";
 import type { ScenePattern } from "../api";
 import type { InputFrame } from "../core/input";
 
 const CSS_SCALE = 1.6;
 const SEED = 0x1a9e;
+// Run rules the demo plays under. The sim accepts this as construction input (like
+// seed/dt) — the values feed deterministic state, the object itself is out of the hash.
+const RUN_CONFIG = DEFAULT_PLAYER_CONFIG;
 
 const canvas = document.getElementById("playfield") as HTMLCanvasElement;
 const hud = document.getElementById("hud") as HTMLDivElement;
@@ -60,7 +64,7 @@ console.info(
 
 // Sim is recreated on backward-scrub / hot-reload, so it's a reassignable binding
 // the driver callbacks close over.
-let sim = createSimulation(SEED, DT, patterns);
+let sim = createSimulation(SEED, DT, patterns, RUN_CONFIG);
 const keyboard = createKeyboardInput();
 const renderer = createBulletRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, sim.system.capacity);
 const laserRenderer = createLaserRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, sim.lasers.lasers.length);
@@ -78,8 +82,8 @@ function render(): void {
   gl.clear(gl.COLOR_BUFFER_BIT);
 
   const { system } = sim;
-  playerMarker.x = sim.playerX;
-  playerMarker.y = sim.playerY;
+  playerMarker.x = sim.player.x;
+  playerMarker.y = sim.player.y;
   // Beams first (behind the bullet glow); both draw additively.
   const beams = laserRenderer.draw(sim.lasers.lasers);
   const drawn = renderer.draw(system.store, system.alive, system.highWater, playerMarker);
@@ -99,7 +103,7 @@ const driver = createSimDriver({
   sampleInput: (tick) => keyboard.sample(tick),
   step: (input) => sim.step(input),
   rebuild: () => {
-    sim = createSimulation(SEED, DT, patterns);
+    sim = createSimulation(SEED, DT, patterns, RUN_CONFIG);
   },
   render,
 });

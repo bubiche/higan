@@ -29,13 +29,17 @@ import {
 } from "../api/emitter";
 import { PLAYFIELD_W, PLAYFIELD_H } from "./playfield";
 import type { InputFrame } from "./input";
+import {
+  createPlayer,
+  stepPlayerMovement,
+  DEFAULT_PLAYER_CONFIG,
+  type Player,
+  type PlayerConfig,
+} from "../touhou/player";
 
 const SIM_CAPACITY = 4096;
 const LASER_CAPACITY = 64;
 const CULL_MARGIN = 16;
-const PLAYER_RADIUS = 6;
-const PLAYER_SPEED = 260; // sim units / second
-const FOCUS_SPEED = 120;
 
 /** Ticks each showcase pattern runs before the scene advances to the next. */
 export const PATTERN_TICKS = 150;
@@ -47,9 +51,9 @@ export interface Simulation {
   readonly system: BulletSystem;
   /** The laser system (the pool of straight beams) the renderer draws. */
   readonly lasers: LaserSystem;
-  readonly playerX: number;
-  readonly playerY: number;
-  readonly playerRadius: number;
+  /** The player struct (position + game state). Read-only to consumers — only the
+   *  sim mutates it, so the HUD/renderer can never become a second source of truth. */
+  readonly player: Readonly<Player>;
   /** Name of the currently-running showcase pattern (for the HUD). */
   readonly patternName: string;
   /** Advance the simulation by exactly one fixed step, given this tick's input. */
@@ -62,6 +66,7 @@ export function createSimulation(
   seed: number,
   dt: number,
   patterns: readonly ScenePattern[],
+  config: PlayerConfig = DEFAULT_PLAYER_CONFIG,
 ): Simulation {
   const rng = new Rng(seed);
   const system = createBulletSystem(
@@ -70,11 +75,11 @@ export function createSimulation(
   );
   const lasers = createLaserSystem(LASER_CAPACITY);
 
-  let playerX = PLAYFIELD_W / 2;
-  let playerY = PLAYFIELD_H * 0.8;
-  // The shared aim/home target. A stable object: emitters and the bullet update
-  // loop read it each tick; we mutate its fields in place rather than replacing it.
-  const target: Vec2 = { x: playerX, y: playerY };
+  const player = createPlayer(config, PLAYFIELD_W / 2, PLAYFIELD_H * 0.8);
+  // The shared aim/home target. A stable object that views the player position:
+  // emitters and the bullet update loop read it each tick; we mutate its fields in
+  // place rather than replacing it.
+  const target: Vec2 = { x: player.x, y: player.y };
 
   let tick = 0;
   let patternIndex = -1;
@@ -117,21 +122,18 @@ export function createSimulation(
   const lwid = new Float32Array(LASER_CAPACITY);
   const lspin = new Float32Array(LASER_CAPACITY);
   const lage = new Float32Array(LASER_CAPACITY);
-  const scalars = new Float32Array(8);
+  // Scalar block: sim/scene/laser state (0-7) + the full player struct (8-17).
+  // Every player field is folded in so the hash layout is stable once the
+  // bomb/death/collision steps start mutating these (sub-tasks ahead).
+  const scalars = new Float32Array(18);
 
   const step = (input: InputFrame): void => {
-    // 1. Player from input.
-    const speed = input.focus ? FOCUS_SPEED : PLAYER_SPEED;
-    playerX += input.dx * speed * dt;
-    playerY += input.dy * speed * dt;
-    if (playerX < PLAYER_RADIUS) playerX = PLAYER_RADIUS;
-    else if (playerX > PLAYFIELD_W - PLAYER_RADIUS) playerX = PLAYFIELD_W - PLAYER_RADIUS;
-    if (playerY < PLAYER_RADIUS) playerY = PLAYER_RADIUS;
-    else if (playerY > PLAYFIELD_H - PLAYER_RADIUS) playerY = PLAYFIELD_H - PLAYER_RADIUS;
+    // 1. Player movement from input (focus-aware speed, clamped to the field).
+    stepPlayerMovement(player, input, config, dt, PLAYFIELD_W, PLAYFIELD_H);
 
     // 2. Target tracks the player.
-    target.x = playerX;
-    target.y = playerY;
+    target.x = player.x;
+    target.y = player.y;
 
     // 3. Scene cycle: advance to the next pattern on a tick boundary.
     if (patterns.length > 0) {
@@ -194,12 +196,22 @@ export function createSimulation(
     }
     scalars[0] = tick;
     scalars[1] = system.liveCount;
-    scalars[2] = playerX;
-    scalars[3] = playerY;
+    scalars[2] = player.x;
+    scalars[3] = player.y;
     scalars[4] = patternIndex;
     scalars[5] = running ? running.resumeTick : -1;
     scalars[6] = running ? (running.done ? 1 : 0) : -1;
     scalars[7] = lasers.liveCount;
+    scalars[8] = player.focused ? 1 : 0;
+    scalars[9] = player.lives;
+    scalars[10] = player.bombs;
+    scalars[11] = player.graze;
+    scalars[12] = player.power;
+    scalars[13] = player.invulnTicks;
+    scalars[14] = player.deathbombTicks;
+    scalars[15] = player.prevBomb ? 1 : 0;
+    scalars[16] = player.spellCapturedNoMiss ? 1 : 0;
+    scalars[17] = player.state;
     return hashFloat32Arrays([
       sx.subarray(0, n),
       sy.subarray(0, n),
@@ -227,13 +239,7 @@ export function createSimulation(
     },
     system,
     lasers,
-    get playerX() {
-      return playerX;
-    },
-    get playerY() {
-      return playerY;
-    },
-    playerRadius: PLAYER_RADIUS,
+    player,
     get patternName() {
       return patternIndex >= 0 && patternIndex < patterns.length
         ? patterns[patternIndex].name
