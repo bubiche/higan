@@ -77,24 +77,50 @@ const playerMarker: Overlay = {
   sprite: Shape.BigOrb,
 };
 
+// The focus hitbox indicator — a small bright dot at the true hitbox radius, shown
+// only while focus is held (Touhou convention: focus reveals the pinprick hitbox).
+// Cosmetic, out of the sim/hash — it just reads the player state.
+const hitboxMarker: Overlay = {
+  x: 0,
+  y: 0,
+  radius: RUN_CONFIG.hitboxRadius,
+  color: [1.0, 0.3, 0.3],
+  sprite: Shape.Orb,
+};
+
 function render(): void {
   gl.clearColor(0.008, 0.012, 0.04, 1);
   gl.clear(gl.COLOR_BUFFER_BIT);
 
-  const { system } = sim;
-  playerMarker.x = sim.player.x;
-  playerMarker.y = sim.player.y;
+  const { system, player } = sim;
+  playerMarker.x = player.x;
+  playerMarker.y = player.y;
+  hitboxMarker.x = player.x;
+  hitboxMarker.y = player.y;
+
+  // Cosmetic overlays (out of the sim/hash): the player marker, blinked off on
+  // alternate windows while invulnerable (the i-frame flash); plus the tiny hitbox
+  // dot whenever focus is held.
+  const overlays: Overlay[] = [];
+  const invulnBlink = player.invulnTicks > 0 && Math.floor(driver.tick / 4) % 2 === 1;
+  if (!invulnBlink) overlays.push(playerMarker);
+  if (player.focused) overlays.push(hitboxMarker);
+
   // Beams first (behind the bullet glow); both draw additively.
   const beams = laserRenderer.draw(sim.lasers.lasers);
-  const drawn = renderer.draw(system.store, system.alive, system.highWater, playerMarker);
+  const drawn = renderer.draw(system.store, system.alive, system.highWater, overlays);
 
+  const stateLabel = ["alive", "dying", "respawn", "GAME OVER"][player.state];
   hud.textContent =
     `tick    ${driver.tick}\n` +
     `pattern ${sim.patternName}\n` +
     `bullets ${system.liveCount}\n` +
     `beams   ${beams}\n` +
     `drawn   ${drawn}\n` +
-    `graze   ${sim.player.graze}\n` +
+    `lives   ${player.lives}\n` +
+    `bombs   ${player.bombs}\n` +
+    `graze   ${player.graze}\n` +
+    `state   ${stateLabel}${player.invulnTicks > 0 ? ` (inv ${player.invulnTicks})` : ""}\n` +
     `hash    0x${sim.hash().toString(16).padStart(8, "0")}\n` +
     `speed   ${driver.speed}x${driver.paused ? "   ❚❚ PAUSED" : ""}`;
 }

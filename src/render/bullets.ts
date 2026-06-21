@@ -88,9 +88,9 @@ void main() {
 }`;
 
 /**
- * A single non-bullet marker (the keyboard-controlled player/target) drawn on the
- * same instanced program after the bullets. It is deliberately NOT a bullet — it
- * never enters the simulation or the determinism hash — so it gets its own
+ * A non-bullet marker (e.g. the player marker, or the focus hitbox dot) drawn on
+ * the same instanced program after the bullets. These are deliberately NOT bullets
+ * — they never enter the simulation or the determinism hash — so each gets its own
  * one-instance draw rather than a slot in the store.
  */
 export interface Overlay {
@@ -103,10 +103,16 @@ export interface Overlay {
 
 export interface BulletRenderer {
   /**
-   * Marshal, upload, and draw the live bullets, plus an optional one-instance
-   * `overlay` (e.g. the player marker). Returns the bullet instance count drawn.
+   * Marshal, upload, and draw the live bullets, plus any one-instance `overlays`
+   * (player marker, hitbox dot, …) drawn in order on top. Returns the bullet
+   * instance count drawn.
    */
-  draw(store: BulletStore, alive: Uint8Array, highWater: number, overlay?: Overlay): number;
+  draw(
+    store: BulletStore,
+    alive: Uint8Array,
+    highWater: number,
+    overlays?: readonly Overlay[],
+  ): number;
 }
 
 export function createBulletRenderer(
@@ -160,9 +166,10 @@ export function createBulletRenderer(
   gl.blendFunc(gl.ONE, gl.ONE); // additive (premultiplied source) — the glow look
 
   return {
-    draw(store, alive, highWater, overlay): number {
+    draw(store, alive, highWater, overlays): number {
       const count = marshalBullets(store, alive, highWater, instData);
-      if (count === 0 && !overlay) return 0;
+      const overlayCount = overlays ? overlays.length : 0;
+      if (count === 0 && overlayCount === 0) return 0;
       gl.useProgram(prog);
       gl.uniform2f(uViewport, fieldW, fieldH);
       gl.activeTexture(gl.TEXTURE0);
@@ -174,18 +181,20 @@ export function createBulletRenderer(
         gl.bufferSubData(gl.ARRAY_BUFFER, 0, instData, 0, count * INSTANCE_FLOATS);
         gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, count);
       }
-      if (overlay) {
-        // Reuse the head of the instance buffer for a single-instance draw; the
-        // bullet draw above is already issued, so overwriting is safe, and marshal
+      for (let k = 0; k < overlayCount; k++) {
+        // Reuse the head of the instance buffer for each single-instance draw; the
+        // bullet draw above is already issued and each overlay draw is submitted
+        // before the next overwrite, so reusing the head is safe — and marshal
         // rewrites the buffer next frame.
-        overlayData[0] = overlay.x;
-        overlayData[1] = overlay.y;
-        overlayData[2] = overlay.radius;
-        overlayData[3] = 0; // angle: marker is round, no rotation
-        overlayData[4] = overlay.color[0];
-        overlayData[5] = overlay.color[1];
-        overlayData[6] = overlay.color[2];
-        overlayData[7] = overlay.sprite;
+        const o = overlays![k];
+        overlayData[0] = o.x;
+        overlayData[1] = o.y;
+        overlayData[2] = o.radius;
+        overlayData[3] = 0; // angle: markers are round, no rotation
+        overlayData[4] = o.color[0];
+        overlayData[5] = o.color[1];
+        overlayData[6] = o.color[2];
+        overlayData[7] = o.sprite;
         gl.bufferSubData(gl.ARRAY_BUFFER, 0, overlayData, 0, INSTANCE_FLOATS);
         gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, 1);
       }

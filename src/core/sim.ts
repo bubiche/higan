@@ -32,6 +32,7 @@ import type { InputFrame } from "./input";
 import {
   createPlayer,
   stepPlayerMovement,
+  stepPlayerLifecycle,
   DEFAULT_PLAYER_CONFIG,
   type Player,
   type PlayerConfig,
@@ -76,7 +77,11 @@ export function createSimulation(
   );
   const lasers = createLaserSystem(LASER_CAPACITY);
 
-  const player = createPlayer(config, PLAYFIELD_W / 2, PLAYFIELD_H * 0.8);
+  // Spawn / respawn position — the bottom-centre start. A constant (not hashed),
+  // passed to the lifecycle step so a respawn returns the player here.
+  const START_X = PLAYFIELD_W / 2;
+  const START_Y = PLAYFIELD_H * 0.8;
+  const player = createPlayer(config, START_X, START_Y);
   // The shared aim/home target. A stable object that views the player position:
   // emitters and the bullet update loop read it each tick; we mutate its fields in
   // place rather than replacing it.
@@ -157,9 +162,17 @@ export function createSimulation(
     system.update(dt, target.x, target.y);
     // 6. Advance beams (age the telegraph→fire→fade lifecycle, sweep, despawn).
     lasers.update(dt);
-    // 7. Player-vs-field pass (graze now; the hit/death response builds on it).
-    //    Read-only over the bullet store; consumes no randomness.
-    stepCollision(player, system, config);
+    // 7. Player-vs-field pass — graze (a write) + hit detection (read-only over
+    //    bullets and beams). Consumes no randomness.
+    const { hit } = stepCollision(player, system, lasers, config);
+    // 8. Death/bomb lifecycle consumes the hit. A bomb (or deathbomb) clears the
+    //    field; the clear is done here so the lifecycle step stays free of the
+    //    bullet/laser systems.
+    const { clearField } = stepPlayerLifecycle(player, input, config, hit, START_X, START_Y);
+    if (clearField) {
+      system.clear();
+      lasers.clear();
+    }
 
     tick++;
   };
