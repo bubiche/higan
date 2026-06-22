@@ -31,6 +31,8 @@ export type {
 
 export type { BossScript, BossContext, PhaseSpec, PhaseResult } from "./boss";
 
+export { defineGame, type GameDefinition, type StageDef, type CharacterDef } from "./game";
+
 export {
   linear,
   accelerate,

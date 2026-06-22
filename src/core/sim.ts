@@ -42,8 +42,11 @@ import {
 } from "../touhou/player";
 import { stepCollision } from "../touhou/collision";
 
-const SIM_CAPACITY = 4096;
-const LASER_CAPACITY = 64;
+/** Bullet-store capacity a stage sim allocates — also the size the renderer's
+ *  instance buffer is built to, so the shell can size renderers before a sim exists. */
+export const SIM_CAPACITY = 4096;
+/** Laser-pool capacity (the renderer's beam buffer is sized to match). */
+export const LASER_CAPACITY = 64;
 const CULL_MARGIN = 16;
 
 /** Ticks each showcase pattern runs before the scene advances to the next. */

@@ -39,12 +39,17 @@ function gauge(ratio: number): string {
   return "#".repeat(filled) + "-".repeat(GAUGE_CELLS - filled);
 }
 
+/** The side HUD handle: call `update` once per rendered frame. */
+export interface Hud {
+  update(sim: Simulation, driver: SimDriver, frame: HudFrame): void;
+}
+
 /**
  * Build the side HUD over `panel` (a white-space:pre text element). Returns an
  * `update` to call once per rendered frame with the current sim/driver and the
  * frame's render-side numbers.
  */
-export function createHud(panel: HTMLElement): { update(sim: Simulation, driver: SimDriver, frame: HudFrame): void } {
+export function createHud(panel: HTMLElement): Hud {
   return {
     update(sim, driver, frame) {
       const { player } = sim;

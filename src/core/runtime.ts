@@ -1,9 +1,14 @@
 // Fixed-timestep driver + frame-step debugger.
 //
-// Sits between the raw animation ticker (loop.ts) and the deterministic sim. It
+// Sits between the app shell's single animation loop and the deterministic sim. It
 // owns the time accumulator and decides how many fixed steps to run per rendered
 // frame, and it implements the debugger controls the loop can't: pause, single-
 // step, slow-motion, and backward-scrub.
+//
+// It is EXTERNALLY DRIVEN: it does not own an animation loop and it does not draw.
+// The shell calls `frame(dtSeconds)` once per rendered frame (passing real elapsed
+// time) to advance the sim, and renders separately. Keeping the driver loop-less is
+// what lets one shell loop dispatch to whichever screen is active.
 //
 // Two invariants make this safe for determinism:
 //   - The sim ALWAYS advances by exactly `dt`. Slow-motion scales the wall-clock
@@ -15,7 +20,6 @@
 //     log up to the target tick — which only works because the sim is a pure
 //     function of (seed, input log). Debugger controls never enter this log.
 
-import { startAnimationLoop, type LoopHandle } from "./loop";
 import type { InputFrame } from "./input";
 import type { Replay } from "../touhou/replay";
 
@@ -31,8 +35,6 @@ export interface SimDriverOptions {
   /** Reset the simulation to its initial (tick 0) state, built from `seed`. Needed
    *  for backward-scrub, resync, and replay load. */
   rebuild: (seed: number) => void;
-  /** Draw the current state. Called once per rendered frame, including while paused. */
-  render: () => void;
   /** Cap on steps per rendered frame, to avoid a spiral of death after a stall. */
   readonly maxStepsPerFrame?: number;
 }
@@ -41,6 +43,12 @@ export interface SimDriver {
   readonly paused: boolean;
   readonly speed: number;
   readonly tick: number;
+  /**
+   * Advance the sim by the fixed-step accumulator for one rendered frame, given the
+   * real wall-clock seconds elapsed. The shell's single animation loop calls this
+   * once per frame; it draws separately, so this never renders. A no-op while paused.
+   */
+  frame(dtSeconds: number): void;
   pause(): void;
   play(): void;
   togglePause(): void;
@@ -62,11 +70,10 @@ export interface SimDriver {
   loadRecording(replay: Replay): void;
   /** Set the slow-motion multiplier (1 = real time, 0.25 = quarter speed). */
   setSpeed(mult: number): void;
-  stop(): void;
 }
 
 export function createSimDriver(opts: SimDriverOptions): SimDriver {
-  const { dt, sampleInput, step, rebuild, render } = opts;
+  const { dt, sampleInput, step, rebuild } = opts;
   const maxSteps = opts.maxStepsPerFrame ?? 5;
 
   const inputLog: InputFrame[] = [];
@@ -91,19 +98,6 @@ export function createSimDriver(opts: SimDriverOptions): SimDriver {
     tick++;
   };
 
-  const loop: LoopHandle = startAnimationLoop((dtSeconds) => {
-    if (!paused) {
-      acc += dtSeconds * speed;
-      let steps = 0;
-      while (acc >= dt && steps < maxSteps) {
-        advanceOne();
-        acc -= dt;
-        steps++;
-      }
-    }
-    render();
-  });
-
   return {
     get paused() {
       return paused;
@@ -113,6 +107,16 @@ export function createSimDriver(opts: SimDriverOptions): SimDriver {
     },
     get tick() {
       return tick;
+    },
+    frame(dtSeconds: number): void {
+      if (paused) return;
+      acc += dtSeconds * speed;
+      let steps = 0;
+      while (acc >= dt && steps < maxSteps) {
+        advanceOne();
+        acc -= dt;
+        steps++;
+      }
     },
     pause(): void {
       paused = true;
@@ -127,7 +131,6 @@ export function createSimDriver(opts: SimDriverOptions): SimDriver {
       paused = true;
       acc = 0;
       advanceOne();
-      render();
     },
     stepBack(): void {
       if (tick === 0) return;
@@ -137,7 +140,6 @@ export function createSimDriver(opts: SimDriverOptions): SimDriver {
       rebuild(seed);
       tick = 0;
       while (tick < target) advanceOne();
-      render();
     },
     resync(): void {
       acc = 0;
@@ -145,7 +147,6 @@ export function createSimDriver(opts: SimDriverOptions): SimDriver {
       rebuild(seed);
       tick = 0;
       while (tick < target) advanceOne();
-      render();
     },
     getRecording(): Replay {
       // Copy so callers can't mutate the live log.
@@ -161,13 +162,9 @@ export function createSimDriver(opts: SimDriverOptions): SimDriver {
       tick = 0;
       const target = inputLog.length;
       while (tick < target) advanceOne();
-      render();
     },
     setSpeed(mult: number): void {
       speed = mult > 0 ? mult : 0;
-    },
-    stop(): void {
-      loop.stop();
     },
   };
 }
