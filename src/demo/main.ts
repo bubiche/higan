@@ -7,9 +7,10 @@ import { assertDeterministic } from "../core/determinism";
 import { PLAYFIELD_W, PLAYFIELD_H, DT } from "../core/playfield";
 import { Shape } from "../api";
 import { createKeyboardInput } from "./keyboard";
+import { DEMO_BOSS } from "./patterns/boss";
 import { SHOWCASE } from "./patterns/showcase";
 import { DEFAULT_PLAYER_CONFIG } from "../touhou/player";
-import type { ScenePattern } from "../api";
+import type { BossScript, ScenePattern } from "../api";
 import type { InputFrame } from "../core/input";
 
 const CSS_SCALE = 1.6;
@@ -35,17 +36,42 @@ function resize(): void {
 resize();
 window.addEventListener("resize", resize);
 
-// The showcase patterns the scene cycles through. A reassignable binding so a
-// hot-reload can swap in edited pattern code (see the HMR hook below).
-let patterns: readonly ScenePattern[] = SHOWCASE;
+// The demo scene is the boss (an emitter-of-emitters). A reassignable binding so a
+// hot-reload can swap in edited boss code (see the HMR hook below). No pattern
+// cycle is used in the boss scene, so `patterns` is empty.
+const patterns: readonly ScenePattern[] = [];
+let boss: BossScript = DEMO_BOSS;
 
-// The determinism run must span at least one full pattern cycle, or aimed/home
-// (the trig-and-target-dependent behaviours) never get exercised by the guard.
-// Sized to the cycle length plus headroom for a couple of added patterns.
+// The determinism run holds shoot and weaves so it drains HP and spans the boss's
+// phases (including the retarget spell) — exercising the multi-emitter scheduler,
+// child-spawn, and retarget, which is the new machinery the guard most needs to cover.
 const scripted: InputFrame[] = [];
-const scriptedTicks = PATTERN_TICKS * (patterns.length + 2);
-for (let i = 0; i < scriptedTicks; i++) {
+const GUARD_TICKS = 1300;
+for (let i = 0; i < GUARD_TICKS; i++) {
   scripted.push({
+    dx: (i >> 3) % 2 ? 1 : -1,
+    dy: 0,
+    shoot: true,
+    focus: i % 120 < 30,
+    bomb: false,
+  });
+}
+
+// Continuous determinism guard: same seed + scripted input + boss, twice, must hash
+// identically. Runs on every (re)load so any nondeterminism regression trips
+// immediately (Hard Rule 2).
+const det = assertDeterministic(SEED, scripted, DT, patterns, boss);
+console.info(
+  `[higan] determinism OK (boss) — hash 0x${det.hashA.toString(16).padStart(8, "0")} over ${det.ticks} ticks`,
+);
+
+// The boss exercises linear/accelerate/home/curve/lasers but not wave, delay, or
+// ramp's speed-change leg — so a second guard runs the full showcase pattern set
+// (not the demo scene, just behavior-vocabulary coverage) to keep those update-loop
+// branches under the continuous determinism net. A full cycle + headroom.
+const showcaseScript: InputFrame[] = [];
+for (let i = 0; i < PATTERN_TICKS * (SHOWCASE.length + 2); i++) {
+  showcaseScript.push({
     dx: ((i >> 4) % 3) - 1,
     dy: ((i >> 5) % 3) - 1,
     shoot: (i & 8) !== 0,
@@ -53,18 +79,11 @@ for (let i = 0; i < scriptedTicks; i++) {
     bomb: false,
   });
 }
-
-// Continuous determinism guard: same seed + scripted input + patterns, twice,
-// must hash identically. Runs on every (re)load so any nondeterminism regression
-// trips immediately (Hard Rule 2).
-const det = assertDeterministic(SEED, scripted, DT, patterns);
-console.info(
-  `[higan] determinism OK — hash 0x${det.hashA.toString(16).padStart(8, "0")} over ${det.ticks} ticks`,
-);
+assertDeterministic(SEED, showcaseScript, DT, SHOWCASE);
 
 // Sim is recreated on backward-scrub / hot-reload, so it's a reassignable binding
 // the driver callbacks close over.
-let sim = createSimulation(SEED, DT, patterns, RUN_CONFIG);
+let sim = createSimulation(SEED, DT, patterns, RUN_CONFIG, boss);
 const keyboard = createKeyboardInput();
 const renderer = createBulletRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, sim.system.capacity);
 const laserRenderer = createLaserRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, sim.lasers.lasers.length);
@@ -111,17 +130,37 @@ function render(): void {
   const drawn = renderer.draw(system.store, system.alive, system.highWater, overlays);
 
   const stateLabel = ["alive", "dying", "respawn", "GAME OVER"][player.state];
+  // Boss/spell gauges read sim state every frame and keep no counters of their own
+  // (the sim is the single source of truth). HP + timer are the gate's "gauges".
+  let bossLines = "";
+  const boss = sim.boss;
+  if (boss) {
+    if (boss.defeated) {
+      bossLines = `\nboss    ✦ DEFEATED ✦`;
+    } else if (boss.active) {
+      const pct = boss.hpMax > 0 ? Math.max(0, boss.hp / boss.hpMax) : 0;
+      const bars = 18;
+      const filled = Math.round(pct * bars);
+      const gauge = "#".repeat(filled) + "-".repeat(bars - filled);
+      bossLines =
+        `\nspell   ${boss.name}${boss.isSpell ? "  ✦" : ""}` +
+        `\nhp      [${gauge}] ${Math.ceil(boss.hp)}` +
+        `\ntimer   ${(boss.timeLeft / 60).toFixed(1)}s` +
+        `\ncapture ${player.spellCapturedNoMiss ? "intact (shoot to capture)" : "missed"}`;
+    }
+  }
   hud.textContent =
     `tick    ${driver.tick}\n` +
-    `pattern ${sim.patternName}\n` +
+    `phase   ${sim.patternName}\n` +
     `bullets ${system.liveCount}\n` +
     `beams   ${beams}\n` +
     `drawn   ${drawn}\n` +
     `lives   ${player.lives}\n` +
     `bombs   ${player.bombs}\n` +
     `graze   ${player.graze}\n` +
-    `state   ${stateLabel}${player.invulnTicks > 0 ? ` (inv ${player.invulnTicks})` : ""}\n` +
-    `hash    0x${sim.hash().toString(16).padStart(8, "0")}\n` +
+    `state   ${stateLabel}${player.invulnTicks > 0 ? ` (inv ${player.invulnTicks})` : ""}` +
+    bossLines +
+    `\nhash    0x${sim.hash().toString(16).padStart(8, "0")}\n` +
     `speed   ${driver.speed}x${driver.paused ? "   ❚❚ PAUSED" : ""}`;
 }
 
@@ -131,7 +170,7 @@ const driver = createSimDriver({
   sampleInput: (tick) => keyboard.sample(tick),
   step: (input) => sim.step(input),
   rebuild: (seed) => {
-    sim = createSimulation(seed, DT, patterns, RUN_CONFIG);
+    sim = createSimulation(seed, DT, patterns, RUN_CONFIG, boss);
   },
   render,
 });
@@ -162,15 +201,15 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-// Hot-reload: when the pattern module is edited, swap in the new code, re-check
+// Hot-reload: when the boss module is edited, swap in the new code, re-check
 // determinism against it (the purity invariant's edit-time tripwire), then
 // rebuild + replay to the current tick so the scene continues with the new code.
 if (import.meta.hot) {
-  import.meta.hot.accept("./patterns/showcase", (mod) => {
+  import.meta.hot.accept("./patterns/boss", (mod) => {
     if (!mod) return;
-    patterns = (mod as unknown as { SHOWCASE: readonly ScenePattern[] }).SHOWCASE;
-    assertDeterministic(SEED, scripted, DT, patterns);
+    boss = (mod as unknown as { DEMO_BOSS: BossScript }).DEMO_BOSS;
+    assertDeterministic(SEED, scripted, DT, patterns, boss);
     driver.resync();
-    console.info("[higan] patterns hot-reloaded");
+    console.info("[higan] boss hot-reloaded");
   });
 }

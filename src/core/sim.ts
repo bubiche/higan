@@ -23,10 +23,12 @@ import { createLaserSystem, type LaserSystem } from "../touhou/laser";
 import {
   startEmitter,
   stepEmitter,
+  type EmitterDeps,
   type RunningEmitter,
   type ScenePattern,
   type Vec2,
 } from "../api/emitter";
+import { startBoss, type BossScript, type BossDeps, type PhaseSpec } from "../api/boss";
 import { PLAYFIELD_W, PLAYFIELD_H } from "./playfield";
 import type { InputFrame } from "./input";
 import {
@@ -34,6 +36,7 @@ import {
   stepPlayerMovement,
   stepPlayerLifecycle,
   DEFAULT_PLAYER_CONFIG,
+  PlayerState,
   type Player,
   type PlayerConfig,
 } from "../touhou/player";
@@ -46,6 +49,28 @@ const CULL_MARGIN = 16;
 /** Ticks each showcase pattern runs before the scene advances to the next. */
 export const PATTERN_TICKS = 150;
 
+/**
+ * Boss / spell-card runtime state. Deterministic — HP drains from `input.shoot`,
+ * the timer from ticks — and folded into the hash. Exposed read-only for the HUD,
+ * which keeps no counters of its own (the sim is the single source of truth).
+ */
+export interface BossState {
+  /** A phase is running (false during gaps, before the first phase, after defeat). */
+  active: boolean;
+  /** Current phase name (a spell-card title for spell phases). */
+  name: string;
+  /** HP remaining and the phase's starting HP (for a gauge ratio). */
+  hp: number;
+  hpMax: number;
+  /** Ticks remaining and the phase's limit (for a timer gauge). */
+  timeLeft: number;
+  timeLimit: number;
+  /** This phase is a spell card (vs an ordinary phase). */
+  isSpell: boolean;
+  /** The boss coroutine has run out of phases — the boss is beaten. */
+  defeated: boolean;
+}
+
 export interface Simulation {
   /** Number of fixed steps executed so far. */
   readonly tick: number;
@@ -56,8 +81,11 @@ export interface Simulation {
   /** The player struct (position + game state). Read-only to consumers — only the
    *  sim mutates it, so the HUD/renderer can never become a second source of truth. */
   readonly player: Readonly<Player>;
-  /** Name of the currently-running showcase pattern (for the HUD). */
+  /** Name of the currently-running scene element (boss phase or showcase pattern). */
   readonly patternName: string;
+  /** Boss/spell-card state, or null when no boss scene is running. Read-only — the
+   *  HUD displays it and keeps no counters of its own. */
+  readonly boss: Readonly<BossState> | null;
   /** Advance the simulation by exactly one fixed step, given this tick's input. */
   step(input: InputFrame): void;
   /** Bit-level fingerprint of the current state (live slots only). */
@@ -69,6 +97,7 @@ export function createSimulation(
   dt: number,
   patterns: readonly ScenePattern[],
   config: PlayerConfig = DEFAULT_PLAYER_CONFIG,
+  boss?: BossScript,
 ): Simulation {
   const rng = new Rng(seed);
   const system = createBulletSystem(
@@ -89,8 +118,26 @@ export function createSimulation(
 
   let tick = 0;
   let patternIndex = -1;
-  let running: RunningEmitter | null = null;
-  const deps = { system, lasers, rng, target };
+  // The scheduler runs an ordered array of emitters (a boss is an emitter-of-
+  // emitters: a root coroutine that spawns child emitters). Stepped in array order
+  // each tick; stable order + the clamped-yield rule keep it deterministic.
+  // `patternRoot` is the scene-cycle's single root (the showcase), tracked
+  // separately because the scene repositions ONLY that root each tick — a blanket
+  // position write across the whole array would teleport every child emitter.
+  let running: RunningEmitter[] = [];
+  let patternRoot: RunningEmitter | null = null;
+  const deps: EmitterDeps = {
+    system,
+    lasers,
+    rng,
+    target,
+    // A child spawned this tick is appended and first resumes NEXT tick (tick + 1):
+    // no same-tick re-entry, and `stepRunning` captures the length before iterating
+    // so the new entry is not visited until then.
+    spawnChild(script, cx, cy, group) {
+      running.push(startEmitter(script, cx, cy, tick + 1, deps, group));
+    },
+  };
 
   // The boss (emitter origin) sways along the top, driven by `tick` — never the
   // wall-clock — so it stays deterministic.
@@ -103,12 +150,76 @@ export function createSimulation(
     // Hard cut between patterns; in-flight bullets and beams clear (deterministic).
     system.clear();
     lasers.clear();
+    running = [];
     if (patterns.length === 0) {
-      running = null;
+      patternRoot = null;
       return;
     }
-    running = startEmitter(patterns[idx].script, bossX(atTick), bossY(), atTick, deps);
+    patternRoot = startEmitter(patterns[idx].script, bossX(atTick), bossY(), atTick, deps);
+    running.push(patternRoot);
   };
+
+  // Step every emitter due this tick, then drop the finished ones. The length is
+  // captured BEFORE the loop so a child spawned this tick (appended past the end)
+  // is not stepped until next tick — the no-same-tick-re-entrancy rule. The
+  // compaction preserves relative order, so the schedule stays deterministic.
+  const stepRunning = (): void => {
+    const n = running.length;
+    for (let i = 0; i < n; i++) {
+      const em = running[i]!;
+      if (!em.done && tick >= em.resumeTick) stepEmitter(em, tick);
+    }
+    if (running.some((em) => em.done)) running = running.filter((em) => !em.done);
+  };
+
+  // Boss/spell-card state. The boss hooks below + the per-tick damage/timer step
+  // mutate it; it is exposed read-only and folded into the hash. `nextGroupId`
+  // hands each phase a fresh group so a transition clears exactly its emitters.
+  const bossState: BossState = {
+    active: false,
+    name: "",
+    hp: 0,
+    hpMax: 0,
+    timeLeft: 0,
+    timeLimit: 0,
+    isSpell: false,
+    defeated: false,
+  };
+  let nextGroupId = 1;
+  let bossRoot: RunningEmitter | null = null;
+  if (boss) {
+    // Static origin (top-centre). A swaying boss would need its child emitters to
+    // track it; static is fine for the demo (documented extension, not built).
+    const bossDeps: BossDeps = {
+      rng,
+      target,
+      spawnChild: deps.spawnChild,
+      nextGroup: () => nextGroupId++,
+      beginPhase(spec: PhaseSpec) {
+        bossState.active = true;
+        bossState.name = spec.name;
+        bossState.hp = spec.hp;
+        bossState.hpMax = spec.hp;
+        bossState.timeLimit = spec.timeLimit;
+        bossState.timeLeft = spec.timeLimit;
+        bossState.isSpell = spec.isSpell ?? false;
+        // Capture tracking resets at phase start; a hit or bomb clears it (player.ts).
+        player.spellCapturedNoMiss = true;
+      },
+      endPhase(group: number) {
+        for (const em of running) if (em.group === group) em.done = true;
+        bossState.active = false;
+        // Genre-standard screen clear on capture / phase transition (sign-off §b).
+        system.clear();
+        lasers.clear();
+      },
+      hp: () => bossState.hp,
+      timeLeft: () => bossState.timeLeft,
+      captured: () => player.spellCapturedNoMiss,
+    };
+    bossRoot = startBoss(boss, PLAYFIELD_W / 2, PLAYFIELD_H * 0.16, 0, bossDeps);
+    running.push(bossRoot);
+  }
 
   // Scratch for the live-slots-only hash; sized once, reused every call.
   const sx = new Float32Array(SIM_CAPACITY);
@@ -121,6 +232,7 @@ export function createSimulation(
   const sbeh = new Float32Array(SIM_CAPACITY);
   const sage = new Float32Array(SIM_CAPACITY);
   const sgrazed = new Float32Array(SIM_CAPACITY);
+  const sgen = new Float32Array(SIM_CAPACITY);
   // Laser scratch (live beams, packed in pool order — deterministic).
   const lx = new Float32Array(LASER_CAPACITY);
   const ly = new Float32Array(LASER_CAPACITY);
@@ -129,10 +241,17 @@ export function createSimulation(
   const lwid = new Float32Array(LASER_CAPACITY);
   const lspin = new Float32Array(LASER_CAPACITY);
   const lage = new Float32Array(LASER_CAPACITY);
-  // Scalar block: sim/scene/laser state (0-7) + the full player struct (8-17).
-  // Every player field is folded in so the hash layout is stable once the
-  // bomb/death/collision steps start mutating these (sub-tasks ahead).
-  const scalars = new Float32Array(18);
+  // Running-emitter scratch: (resumeTick, group) per live emitter, in array order
+  // (deterministic). Directly fingerprints the scheduler — the central new
+  // machinery — beyond what the bullets those emitters spawn already imply. NOTE:
+  // this caps only the HASH fold at 64 concurrent emitters (execution is unbounded;
+  // bullets still hash) — far above any real scene, but a silent cap if it's ever hit.
+  const EMITTER_SCRATCH = 64;
+  const semitRT = new Float32Array(EMITTER_SCRATCH);
+  const semitG = new Float32Array(EMITTER_SCRATCH);
+  // Scalar block: sim/scene/laser state (0-7), the full player struct (8-17), and
+  // boss/spell state (18-22: hp, timeLeft, nextGroupId, active, defeated).
+  const scalars = new Float32Array(23);
 
   const step = (input: InputFrame): void => {
     // 1. Player movement from input (focus-aware speed, clamped to the field).
@@ -142,20 +261,35 @@ export function createSimulation(
     target.x = player.x;
     target.y = player.y;
 
-    // 3. Scene cycle: advance to the next pattern on a tick boundary.
-    if (patterns.length > 0) {
+    // 3-4. Scene. Either a boss (an emitter-of-emitters root that drives ordered
+    //      phases) OR the showcase pattern cycle. Both advance through the same
+    //      scheduler array via stepRunning().
+    if (bossRoot) {
+      stepRunning();
+      if (bossRoot.done) bossState.defeated = true;
+      // Phase HP/timer evolve HERE, not in the boss coroutine: `input.shoot` is
+      // sim-only, and damage must not depend on how often the coroutine resumes.
+      // shoot is level-triggered (held = continuous damage) — unlike bomb, which is
+      // edge-detected. The coroutine only reads hp/timer to decide transitions.
+      if (bossState.active) {
+        if (bossState.timeLeft > 0) bossState.timeLeft--;
+        if (input.shoot && bossState.hp > 0 && player.state !== PlayerState.GameOver) {
+          bossState.hp -= config.shotDps * dt;
+          if (bossState.hp < 0) bossState.hp = 0;
+        }
+      }
+    } else if (patterns.length > 0) {
       const idx = Math.floor(tick / PATTERN_TICKS) % patterns.length;
       if (idx !== patternIndex) startPattern(idx, tick);
 
-      // 4. Move the boss, then step the current emitter. (Writing the boss
-      // position into ctx each tick means the scene owns the boss path; a pattern
-      // that moves itself between yields would be overridden — fine for the
-      // showcase.)
-      if (running) {
-        running.ctx.x = bossX(tick);
-        running.ctx.y = bossY();
-        stepEmitter(running, tick);
+      // Reposition ONLY the scene root's ctx (not across the array, which would
+      // teleport every child emitter); a pattern that moves itself is overridden —
+      // fine for the showcase.
+      if (patternRoot && !patternRoot.done) {
+        patternRoot.ctx.x = bossX(tick);
+        patternRoot.ctx.y = bossY();
       }
+      stepRunning();
     }
 
     // 5. Advance bullets (homing reads the shared target), cull off-field.
@@ -178,7 +312,7 @@ export function createSimulation(
   };
 
   const hash = (): number => {
-    const { x, y, vx, vy, angle, bp0, bp1, behavior, age, grazed } = system.store;
+    const { x, y, vx, vy, angle, bp0, bp1, behavior, age, grazed, gen } = system.store;
     const alive = system.alive;
     const hw = system.highWater;
     // Compact live slots in slot order — deterministic because spawn/despawn
@@ -196,6 +330,7 @@ export function createSimulation(
       sbeh[n] = behavior[i];
       sage[n] = age[i];
       sgrazed[n] = grazed[i];
+      sgen[n] = gen[i];
       n++;
     }
     // Compact live beams in pool order (same rationale as bullet slots above).
@@ -213,13 +348,20 @@ export function createSimulation(
       lage[m] = l.age;
       m++;
     }
+    // Pack live emitters' schedule state (array order — deterministic).
+    let e = 0;
+    for (let i = 0; i < running.length && e < EMITTER_SCRATCH; i++) {
+      semitRT[e] = running[i]!.resumeTick;
+      semitG[e] = running[i]!.group;
+      e++;
+    }
     scalars[0] = tick;
     scalars[1] = system.liveCount;
     scalars[2] = player.x;
     scalars[3] = player.y;
     scalars[4] = patternIndex;
-    scalars[5] = running ? running.resumeTick : -1;
-    scalars[6] = running ? (running.done ? 1 : 0) : -1;
+    scalars[5] = running.length > 0 ? running[0]!.resumeTick : -1;
+    scalars[6] = running.length > 0 ? (running[0]!.done ? 1 : 0) : -1;
     scalars[7] = lasers.liveCount;
     scalars[8] = player.focused ? 1 : 0;
     scalars[9] = player.lives;
@@ -231,6 +373,11 @@ export function createSimulation(
     scalars[15] = player.prevBomb ? 1 : 0;
     scalars[16] = player.spellCapturedNoMiss ? 1 : 0;
     scalars[17] = player.state;
+    scalars[18] = bossState.hp;
+    scalars[19] = bossState.timeLeft;
+    scalars[20] = nextGroupId;
+    scalars[21] = bossState.active ? 1 : 0;
+    scalars[22] = bossState.defeated ? 1 : 0;
     return hashFloat32Arrays([
       sx.subarray(0, n),
       sy.subarray(0, n),
@@ -242,6 +389,7 @@ export function createSimulation(
       sbeh.subarray(0, n),
       sage.subarray(0, n),
       sgrazed.subarray(0, n),
+      sgen.subarray(0, n),
       lx.subarray(0, m),
       ly.subarray(0, m),
       lang.subarray(0, m),
@@ -249,6 +397,8 @@ export function createSimulation(
       lwid.subarray(0, m),
       lspin.subarray(0, m),
       lage.subarray(0, m),
+      semitRT.subarray(0, e),
+      semitG.subarray(0, e),
       scalars,
     ]);
   };
@@ -261,9 +411,15 @@ export function createSimulation(
     lasers,
     player,
     get patternName() {
+      if (bossRoot) {
+        return bossState.active ? bossState.name : bossState.defeated ? "defeated" : "—";
+      }
       return patternIndex >= 0 && patternIndex < patterns.length
         ? patterns[patternIndex].name
         : "—";
+    },
+    get boss() {
+      return bossRoot ? bossState : null;
     },
     step,
     hash,

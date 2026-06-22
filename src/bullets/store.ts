@@ -40,6 +40,12 @@ export interface BulletStore {
    *  bullet lingering in graze range can't re-count. Cleared at spawn (a reused
    *  slot must not inherit a stale bit). Read-only data the player pass writes. */
   readonly grazed: Uint8Array;
+  /** Generation stamp, bumped each time a slot is (re)used. A group handle that
+   *  reaches into already-flying bullets stores `(slot, gen)` and skips any slot
+   *  whose stamp has moved — so retargeting a wave can never rewrite a *different*
+   *  bullet that recycled the slot. Wraps at 16 bits (collisions need 65536 reuses
+   *  of one slot between capture and retarget — impossible in a few ticks). */
+  readonly gen: Uint16Array;
 }
 
 export function createBulletStore(capacity: number = MAX_BULLETS): BulletStore {
@@ -60,5 +66,6 @@ export function createBulletStore(capacity: number = MAX_BULLETS): BulletStore {
     bp1: new Float32Array(capacity),
     age: new Uint16Array(capacity),
     grazed: new Uint8Array(capacity),
+    gen: new Uint16Array(capacity),
   };
 }

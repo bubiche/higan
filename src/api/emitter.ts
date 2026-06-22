@@ -100,6 +100,23 @@ export interface LaserOpts {
   spin?: number;
 }
 
+/**
+ * A handle to a wave of already-spawned bullets, so an emitter can reach back into
+ * them and rewrite their course while they fly (a "slot-list controller", which the
+ * per-bullet behaviour descriptors deliberately can't express). Safe because each
+ * slot is tagged with a generation stamp at spawn: if a bullet was culled and its
+ * slot recycled by an unrelated bullet, the stamp no longer matches and that slot
+ * is skipped — so a retarget can never hijack the wrong bullet.
+ */
+export interface BulletGroup {
+  /**
+   * Re-aim every still-living original bullet toward `(tx, ty)` at `speed`,
+   * rewriting velocity + draw heading. Culled or recycled slots are skipped.
+   * Returns how many bullets were actually retargeted.
+   */
+  retarget(tx: number, ty: number, speed: number): number;
+}
+
 export interface EmitterContext {
   /** Current sim tick. */
   readonly tick: number;
@@ -110,11 +127,27 @@ export interface EmitterContext {
   y: number;
   /** The shared aim/home target (the player stand-in; input-derived). */
   readonly target: Readonly<Vec2>;
+  /** The phase/group this emitter belongs to; children spawned via `sub` inherit it. */
+  readonly group: number;
   fire(o: FireOpts): void;
   ring(o: RingOpts): void;
   fan(o: FanOpts): void;
   aimed(o: AimedOpts): void;
   laser(o: LaserOpts): void;
+  /**
+   * Spawn a child emitter at this emitter's position, in the same group (so a phase
+   * transition clears parent and children together). The child is appended in call
+   * order and first resumes NEXT tick — no same-tick re-entrancy, which keeps the
+   * mid-iteration ordering deterministic. This is what makes a boss an
+   * emitter-of-emitters without breaking the dumb-data rule.
+   */
+  sub(script: EmitterScript): void;
+  /**
+   * Spawn a ring of bullets (like `ring`) and return a `BulletGroup` handle to them,
+   * so a later call can `retarget` the survivors — the one safe way to redirect an
+   * already-flying wave. Use it when a spell must reach back into bullets it fired.
+   */
+  spawnGroup(o: RingOpts): BulletGroup;
 }
 
 /**
@@ -132,13 +165,28 @@ export interface ScenePattern {
 const WHITE: readonly [number, number, number] = [1, 1, 1];
 const DEFAULT_RADIUS = 4;
 
+/**
+ * The slice of a context the scheduler itself touches: it refreshes `tick` on each
+ * resume, and the scene may reposition a root via `x`/`y`. Both `EmitterContext`
+ * and the boss context (api/boss.ts) satisfy this, so the scheduler array can hold
+ * either kind of root without importing the boss layer (no cycle).
+ */
+export interface SchedulableContext {
+  x: number;
+  y: number;
+  tick: number;
+}
+
 /** A running emitter instance plus the bookkeeping the scheduler needs. */
 export interface RunningEmitter {
-  readonly ctx: EmitterContext;
+  readonly ctx: SchedulableContext;
   gen: Generator<number, void, unknown>;
   /** The tick at which this emitter is next due to resume. */
   resumeTick: number;
   done: boolean;
+  /** Phase/group tag; the emitters of one phase share it so a transition can clear
+   *  them as a unit. 0 = ungrouped (the scene/boss root). */
+  group: number;
 }
 
 export interface EmitterDeps {
@@ -147,9 +195,35 @@ export interface EmitterDeps {
   readonly rng: Rng;
   /** Shared target the scheduler keeps current; `aimed`/home read it. */
   readonly target: Readonly<Vec2>;
+  /** Append a child emitter to the scheduler, resuming next tick, tagged `group`.
+   *  Provided by the sim (which owns the scheduler array). */
+  spawnChild(script: EmitterScript, x: number, y: number, group: number): void;
 }
 
-function makeContext(deps: EmitterDeps): EmitterContext {
+/** Build a retargetable handle over the captured `(slot, gen)` pairs. */
+function makeBulletGroup(system: BulletSystem, slots: number[], gens: number[]): BulletGroup {
+  return {
+    retarget(tx, ty, speed): number {
+      const { x, y, vx, vy, angle, gen } = system.store;
+      const alive = system.alive;
+      let count = 0;
+      for (let k = 0; k < slots.length; k++) {
+        const s = slots[k]!;
+        // Skip a slot that was culled (dead) or recycled by another bullet (its
+        // generation stamp moved) — that is exactly what makes this safe.
+        if (alive[s] === 0 || gen[s] !== gens[k]) continue;
+        const a = Math.atan2(ty - y[s]!, tx - x[s]!);
+        vx[s] = Math.cos(a) * speed;
+        vy[s] = Math.sin(a) * speed;
+        angle[s] = a;
+        count++;
+      }
+      return count;
+    },
+  };
+}
+
+function makeContext(deps: EmitterDeps, group: number): EmitterContext {
   const { system, lasers, rng, target } = deps;
 
   // Spawn one bullet from already-resolved primitives. Accelerate is the one
@@ -165,7 +239,7 @@ function makeContext(deps: EmitterDeps): EmitterContext {
     color: readonly [number, number, number],
     sprite: number,
     beh: BulletBehavior,
-  ): void => {
+  ): number => {
     let bp0 = beh.bp0;
     let bp1 = beh.bp1;
     let vx = Math.cos(angle) * speed;
@@ -180,7 +254,7 @@ function makeContext(deps: EmitterDeps): EmitterContext {
       vy = 0;
       bp1 = speed;
     }
-    system.spawn(
+    return system.spawn(
       x,
       y,
       vx,
@@ -203,6 +277,30 @@ function makeContext(deps: EmitterDeps): EmitterContext {
     x: 0,
     y: 0,
     target,
+    group,
+    sub(script) {
+      deps.spawnChild(script, ctx.x, ctx.y, ctx.group);
+    },
+    spawnGroup(o) {
+      const x = o.x ?? ctx.x;
+      const y = o.y ?? ctx.y;
+      const radius = o.radius ?? DEFAULT_RADIUS;
+      const color = o.color ?? WHITE;
+      const sprite = o.sprite ?? Shape.Orb;
+      const beh = o.behavior ?? linear;
+      const base = o.angle ?? 0;
+      const step = (Math.PI * 2) / o.count;
+      const slots: number[] = [];
+      const gens: number[] = [];
+      for (let i = 0; i < o.count; i++) {
+        const slot = emit(x, y, o.speed, base + i * step, radius, color, sprite, beh);
+        if (slot >= 0) {
+          slots.push(slot);
+          gens.push(system.store.gen[slot]!);
+        }
+      }
+      return makeBulletGroup(system, slots, gens);
+    },
     fire(o) {
       emit(
         o.x ?? ctx.x,
@@ -285,25 +383,26 @@ function makeContext(deps: EmitterDeps): EmitterContext {
   return ctx;
 }
 
-/** Begin running `script` at (x, y). Resumes for the first time at `startTick`. */
+/** Begin running `script` at (x, y), in `group`. Resumes first at `startTick`. */
 export function startEmitter(
   script: EmitterScript,
   x: number,
   y: number,
   startTick: number,
   deps: EmitterDeps,
+  group = 0,
 ): RunningEmitter {
-  const ctx = makeContext(deps);
+  const ctx = makeContext(deps, group);
   ctx.x = x;
   ctx.y = y;
-  return { ctx, gen: script(ctx), resumeTick: startTick, done: false };
+  return { ctx, gen: script(ctx), resumeTick: startTick, done: false, group };
 }
 
 /** Resume `em` if it is due at `tick`. Updates `resumeTick` / `done`. */
 export function stepEmitter(em: RunningEmitter, tick: number): void {
   if (em.done || tick < em.resumeTick) return;
   // ctx.tick is part of the context surface; refresh it before resuming.
-  (em.ctx as { tick: number }).tick = tick;
+  em.ctx.tick = tick;
   const r = em.gen.next();
   if (r.done) {
     em.done = true;

@@ -11,6 +11,7 @@
 
 import { createSimulation } from "./sim";
 import type { ScenePattern } from "../api/emitter";
+import type { BossScript } from "../api/boss";
 import type { InputFrame } from "./input";
 
 export interface DeterminismResult {
@@ -31,15 +32,19 @@ export interface DeterminismResult {
  * cover the last pattern alive — nondeterminism in an earlier pattern (e.g. a
  * stray `Math.random` whose bullets are cleared before the end) would slip
  * through. Folding the whole trajectory closes that blind spot.
+ *
+ * Pass `boss` to drive a boss scene instead of the pattern cycle, so the guard
+ * exercises the multi-emitter scheduler + child-spawn + retarget (the new machinery).
  */
 export function checkDeterministic(
   seed: number,
   inputs: readonly InputFrame[],
   dt: number,
   patterns: readonly ScenePattern[],
+  boss?: BossScript,
 ): DeterminismResult {
   const run = (): number => {
-    const sim = createSimulation(seed, dt, patterns);
+    const sim = createSimulation(seed, dt, patterns, undefined, boss);
     let acc = 0x811c9dc5;
     for (let i = 0; i < inputs.length; i++) {
       sim.step(inputs[i]!);
@@ -58,8 +63,9 @@ export function assertDeterministic(
   inputs: readonly InputFrame[],
   dt: number,
   patterns: readonly ScenePattern[],
+  boss?: BossScript,
 ): DeterminismResult {
-  const result = checkDeterministic(seed, inputs, dt, patterns);
+  const result = checkDeterministic(seed, inputs, dt, patterns, boss);
   if (!result.ok) {
     throw new Error(
       `Determinism check FAILED: hash ${result.hashA} !== ${result.hashB} ` +

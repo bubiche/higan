@@ -57,6 +57,15 @@ export function home(turnRate: number): BulletBehavior {
 }
 
 /**
+ * Curve forever at a constant angular `rate` (radians/second), keeping speed — the
+ * constant-turn idiom (Danmakufu's `SetAngularVelocity`). Exactly `ramp(0, rate)`
+ * (Ramp leaves speed unchanged when the speed delta is 0); named for intent.
+ */
+export function curve(rate: number): BulletBehavior {
+  return { behavior: Behavior.Ramp, bp0: 0, bp1: rate };
+}
+
+/**
  * Hang motionless at the spawn point for `ticks` fixed steps, then launch along
  * the spawn heading at the spawn call's `speed` — the classic "appear, pause,
  * snap". After launching it is an ordinary linear bullet. The launch speed is the

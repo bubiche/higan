@@ -52,6 +52,11 @@ export interface PlayerConfig {
   readonly respawnInvuln: number;
   /** I-frames granted after a bomb, in ticks. */
   readonly bombInvuln: number;
+  /** Damage per second the player deals to the boss while `shoot` is held. There
+   *  are no player-shot entities yet, so this is a minimal "shoot to drain HP"
+   *  model — position-independent — enough to make spell-card capture a real,
+   *  deterministic loop. */
+  readonly shotDps: number;
 }
 
 export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
@@ -65,6 +70,7 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   deathbombWindow: 8,
   respawnInvuln: 120,
   bombInvuln: 120,
+  shotDps: 240,
 };
 
 /** The mutable player struct. All fields are deterministic and folded into the

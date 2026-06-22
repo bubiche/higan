@@ -25,8 +25,20 @@ export type {
   FanOpts,
   AimedOpts,
   LaserOpts,
+  BulletGroup,
   Vec2,
 } from "./emitter";
 
-export { linear, accelerate, ramp, home, delay, wave, type BulletBehavior } from "./controllers";
+export type { BossScript, BossContext, PhaseSpec, PhaseResult } from "./boss";
+
+export {
+  linear,
+  accelerate,
+  ramp,
+  home,
+  curve,
+  delay,
+  wave,
+  type BulletBehavior,
+} from "./controllers";
 export { Shape } from "../render/shapes";
