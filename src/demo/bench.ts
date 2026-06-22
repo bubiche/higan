@@ -6,6 +6,18 @@
 // free-list reuse — the paths a fixed contiguous range never touches — to
 // confirm the CPU floor still holds once those are in the loop.
 //
+// It also layers the REAL player + collision modules (the same `stepCollision`,
+// `stepPlayerMovement`, `stepPlayerLifecycle` the playable sim runs — not a
+// bench-local copy) over the flood, so the measurement covers the integrated
+// per-tick cost, not just the bare bullet update. Collision is a SECOND O(N) pass
+// over the same live slots, and its cost is independent of the player's position
+// and lifecycle state (the per-slot graze distance test runs for every live bullet
+// with no early-out — see collision.ts), so the moving input here is for
+// observability (watch graze climb), not to manufacture a worst case. Press `c` to
+// toggle the player + collision passes off and read the bare-bullet baseline in the
+// same session. The boss/scheduler is deliberately excluded: it is O(1) + O(emitters)
+// and never coexists with tens of thousands of bullets, so it is not part of this floor.
+//
 // Not part of the engine or the playable demo. The HUD here is dev
 // instrumentation only.
 
@@ -13,9 +25,19 @@ import { startAnimationLoop } from "../core/loop";
 import { createGL } from "../render/gl";
 import { createBulletRenderer } from "../render/bullets";
 import { createBulletSystem } from "../bullets/system";
+import { createLaserSystem } from "../touhou/laser";
+import {
+  createPlayer,
+  stepPlayerMovement,
+  stepPlayerLifecycle,
+  PlayerState,
+  DEFAULT_PLAYER_CONFIG,
+} from "../touhou/player";
+import { stepCollision } from "../touhou/collision";
 import { Rng } from "../core/prng";
 import { MAX_BULLETS } from "../bullets/store";
 import { PLAYFIELD_W, PLAYFIELD_H, DT } from "../core/playfield";
+import type { InputFrame } from "../core/input";
 
 const CSS_SCALE = 1.6;
 const MARGIN = 16;
@@ -56,6 +78,33 @@ const system = createBulletSystem(
 );
 const renderer = createBulletRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, MAX_BULLETS);
 const rng = new Rng(SEED);
+
+// The real player + collision passes, layered over the flood. The laser pool stays
+// empty (collision still iterates it — a cheap, realistic call path; the floor is
+// the bullet N-vs-1). `config` is the shipped defaults; the player is allowed to
+// take hits and run out of lives — the collision scan costs the same in every
+// lifecycle state — and with `bomb: false` below the lifecycle never clears the
+// field, so the flood holds steady at the target.
+const PLAYER_CONFIG = DEFAULT_PLAYER_CONFIG;
+const START_X = PLAYFIELD_W / 2;
+const START_Y = PLAYFIELD_H * 0.8;
+const player = createPlayer(PLAYER_CONFIG, START_X, START_Y);
+const lasers = createLaserSystem(64);
+let collisionOn = true;
+
+// Tick-driven moving input (no wall-clock). Its only job is observability: a moving
+// player makes graze climb and occasionally takes a hit, proving the player +
+// collision passes ran. `bomb: false` keeps the lifecycle from ever clearing the
+// flood; `shoot` is inert here (no boss to damage).
+function inputFor(tk: number): InputFrame {
+  return {
+    dx: (tk >> 5) & 1 ? 1 : -1,
+    dy: (tk >> 6) & 1 ? 1 : -1,
+    shoot: true,
+    focus: tk % 120 < 30,
+    bomb: false,
+  };
+}
 
 let tick = 0;
 
@@ -98,9 +147,20 @@ function refill(): void {
 }
 
 function step(): void {
+  const input = inputFor(tick);
+  // Mirror the sim's per-tick order: player movement → scene (here, the flood) →
+  // bullet update → laser update → collision → death/bomb lifecycle.
+  if (collisionOn) stepPlayerMovement(player, input, PLAYER_CONFIG, DT, PLAYFIELD_W, PLAYFIELD_H);
   refill();
-  // Linear bullets ignore the target; centre is fine.
-  system.update(DT, PLAYFIELD_W / 2, PLAYFIELD_H / 2);
+  // Linear bullets ignore the homing target; the player position is fine.
+  system.update(DT, player.x, player.y);
+  if (collisionOn) {
+    lasers.update(DT);
+    const { hit } = stepCollision(player, system, lasers, PLAYER_CONFIG);
+    // `bomb: false` means clearField is always false here, so the flood is never
+    // wiped — the steady-state target holds while collision runs at full cost.
+    stepPlayerLifecycle(player, input, PLAYER_CONFIG, hit, START_X, START_Y);
+  }
   tick++;
 }
 
@@ -152,18 +212,39 @@ startAnimationLoop((dtSeconds) => {
     const fr = stats(intervalMs, sampleLen);
     const cp = stats(cpuMs, sampleLen);
     const fps = fr.avg > 0 ? 1000 / fr.avg : 0;
-    const verdict = fr.p99 <= 16.6 ? "pass" : "fail";
+    // The gate is a p99 CPU-budget claim, so the pass/fail rides on cpu-work p99.
+    // Cadence p99 is the rAF frame interval — vsync-bound (≈8.3ms on a 120Hz
+    // display), so it stays green regardless and is only a "are we dropping frames"
+    // signal. And cpu-work AVG understates the per-tick cost: at 120Hz the
+    // fixed-step accumulator runs a sim step only every other frame, so half the
+    // samples are draw-only and dilute the mean; p99 captures the step-bearing
+    // frames — the honest per-tick cost — which is what must fit 16.6ms.
+    const verdict = cp.p99 <= 16.6 ? "pass" : "fail";
+    const stateLabel =
+      player.state === PlayerState.Alive
+        ? "alive"
+        : player.state === PlayerState.Dying
+          ? "dying"
+          : player.state === PlayerState.Respawning
+            ? "respawn"
+            : "game over";
+    const playerLine = collisionOn
+      ? `${stateLabel}  lives ${player.lives}  graze ${player.graze.toLocaleString()}`
+      : "—";
+    const cpuNote = collisionOn ? "update + collision + marshal + submit" : "update + marshal + submit";
     hud.innerHTML =
       `live      ${system.liveCount.toLocaleString().padStart(7)}  / target ${target.toLocaleString()}\n` +
       `drawn     ${drawn.toLocaleString().padStart(7)}\n` +
       `highWater ${system.highWater.toLocaleString().padStart(7)}\n` +
-      `cadence   avg ${fr.avg.toFixed(2)}ms   p99 <span class="${verdict}">${fr.p99.toFixed(2)}ms</span>\n` +
-      `fps       ${fps.toFixed(1)}\n` +
-      `cpu work  avg ${cp.avg.toFixed(3)}ms   (update + marshal + submit)`;
+      `collision ${collisionOn ? "ON  (press c to compare baseline)" : "off (bare bullets, press c)"}\n` +
+      `player    ${playerLine}\n` +
+      `cpu work  avg ${cp.avg.toFixed(3)}ms   p99 <span class="${verdict}">${cp.p99.toFixed(3)}ms</span>   (${cpuNote})\n` +
+      `cadence   avg ${fr.avg.toFixed(2)}ms   p99 ${fr.p99.toFixed(2)}ms   fps ${fps.toFixed(1)}  (vsync-bound)`;
   }
 });
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "+" || e.key === "=") target = Math.min(MAX_BULLETS, target + 5_000);
   else if (e.key === "-" || e.key === "_") target = Math.max(0, target - 5_000);
+  else if (e.key === "c" || e.key === "C") collisionOn = !collisionOn;
 });
