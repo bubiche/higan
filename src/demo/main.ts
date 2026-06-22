@@ -7,9 +7,11 @@ import { assertDeterministic } from "../core/determinism";
 import { PLAYFIELD_W, PLAYFIELD_H, DT } from "../core/playfield";
 import { Shape } from "../api";
 import { createKeyboardInput } from "./keyboard";
+import { createHud } from "./hud";
 import { DEMO_BOSS } from "./patterns/boss";
 import { SHOWCASE } from "./patterns/showcase";
 import { DEFAULT_PLAYER_CONFIG } from "../touhou/player";
+import { serializeReplay, deserializeReplay } from "../touhou/replay";
 import type { BossScript, ScenePattern } from "../api";
 import type { InputFrame } from "../core/input";
 
@@ -21,6 +23,9 @@ const RUN_CONFIG = DEFAULT_PLAYER_CONFIG;
 
 const canvas = document.getElementById("playfield") as HTMLCanvasElement;
 const hud = document.getElementById("hud") as HTMLDivElement;
+const saveBtn = document.getElementById("save-replay") as HTMLButtonElement;
+const loadBtn = document.getElementById("load-replay") as HTMLButtonElement;
+const replayFile = document.getElementById("replay-file") as HTMLInputElement;
 const gl = createGL(canvas);
 
 function resize(): void {
@@ -87,6 +92,11 @@ let sim = createSimulation(SEED, DT, patterns, RUN_CONFIG, boss);
 const keyboard = createKeyboardInput();
 const renderer = createBulletRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, sim.system.capacity);
 const laserRenderer = createLaserRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, sim.lasers.lasers.length);
+const sideHud = createHud(hud);
+
+// Last replay save/load outcome, shown in the HUD. Demo-layer state — never enters
+// the sim or the recorded input log.
+let replayStatus = "";
 
 const playerMarker: Overlay = {
   x: 0,
@@ -129,39 +139,9 @@ function render(): void {
   const beams = laserRenderer.draw(sim.lasers.lasers);
   const drawn = renderer.draw(system.store, system.alive, system.highWater, overlays);
 
-  const stateLabel = ["alive", "dying", "respawn", "GAME OVER"][player.state];
-  // Boss/spell gauges read sim state every frame and keep no counters of their own
-  // (the sim is the single source of truth). HP + timer are the gate's "gauges".
-  let bossLines = "";
-  const boss = sim.boss;
-  if (boss) {
-    if (boss.defeated) {
-      bossLines = `\nboss    ✦ DEFEATED ✦`;
-    } else if (boss.active) {
-      const pct = boss.hpMax > 0 ? Math.max(0, boss.hp / boss.hpMax) : 0;
-      const bars = 18;
-      const filled = Math.round(pct * bars);
-      const gauge = "#".repeat(filled) + "-".repeat(bars - filled);
-      bossLines =
-        `\nspell   ${boss.name}${boss.isSpell ? "  ✦" : ""}` +
-        `\nhp      [${gauge}] ${Math.ceil(boss.hp)}` +
-        `\ntimer   ${(boss.timeLeft / 60).toFixed(1)}s` +
-        `\ncapture ${player.spellCapturedNoMiss ? "intact (shoot to capture)" : "missed"}`;
-    }
-  }
-  hud.textContent =
-    `tick    ${driver.tick}\n` +
-    `phase   ${sim.patternName}\n` +
-    `bullets ${system.liveCount}\n` +
-    `beams   ${beams}\n` +
-    `drawn   ${drawn}\n` +
-    `lives   ${player.lives}\n` +
-    `bombs   ${player.bombs}\n` +
-    `graze   ${player.graze}\n` +
-    `state   ${stateLabel}${player.invulnTicks > 0 ? ` (inv ${player.invulnTicks})` : ""}` +
-    bossLines +
-    `\nhash    0x${sim.hash().toString(16).padStart(8, "0")}\n` +
-    `speed   ${driver.speed}x${driver.paused ? "   ❚❚ PAUSED" : ""}`;
+  // The side HUD reads sim state every frame and keeps no counters of its own (the
+  // sim is the single source of truth). `beams`/`drawn` are render-side draw counts.
+  sideHud.update(sim, driver, { beams, drawn, replayStatus });
 }
 
 const driver = createSimDriver({
@@ -173,6 +153,55 @@ const driver = createSimDriver({
     sim = createSimulation(seed, DT, patterns, RUN_CONFIG, boss);
   },
   render,
+});
+
+// Replay save/load — demo-layer UI over the driver's record/playback (out of the
+// sim and the hash). Save snapshots the seed + recorded input log to a compact
+// blob; Load adopts it, rebuilds from the seed, and replays to the end (paused), so
+// the run reproduces bit-for-bit (the same trajectory hash). The blob only matches
+// when loaded against the same boss/config it was recorded under (the replay
+// contract); a foreign or truncated blob is caught and surfaced, not crashed on.
+function downloadReplay(): void {
+  const replay = driver.getRecording();
+  // `as BlobPart`: the Uint8Array is a valid blob part at runtime; the cast bridges
+  // TS's typed-array buffer generic (ArrayBufferLike) to the DOM's ArrayBuffer.
+  const blob = new Blob([serializeReplay(replay) as BlobPart], { type: "application/octet-stream" });
+  const url = URL.createObjectURL(blob);
+  // Firefox won't fire a programmatic click on a detached anchor, and revoking the
+  // URL synchronously can truncate the download — attach, click, then defer revoke.
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `higan-replay-${replay.frames.length}f.hreplay`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+  replayStatus = `saved ${replay.frames.length} frames`;
+}
+
+async function loadReplayFile(file: File): Promise<void> {
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const replay = deserializeReplay(bytes);
+    driver.loadRecording(replay);
+    replayStatus = `loaded ${replay.frames.length} frames — paused at end`;
+  } catch (err) {
+    replayStatus = `load failed: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+saveBtn.addEventListener("click", () => {
+  downloadReplay();
+  saveBtn.blur(); // so Space toggles pause again, not the button
+});
+loadBtn.addEventListener("click", () => {
+  replayFile.click();
+  loadBtn.blur();
+});
+replayFile.addEventListener("change", () => {
+  const file = replayFile.files?.[0];
+  if (file) void loadReplayFile(file);
+  replayFile.value = ""; // reset so re-picking the same file fires `change` again
 });
 
 // Debugger controls drive the loop, NOT the simulation — they are deliberately

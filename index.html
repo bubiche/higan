@@ -8,25 +8,42 @@
       :root { color-scheme: dark; }
       html, body { margin: 0; height: 100%; background: #07080d;
         font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #aeb6c8; }
-      #stage { display: flex; align-items: center; justify-content: center; min-height: 100%; }
+      /* Playfield on the left, status panel on the right — the Touhou layout. */
+      #stage { display: flex; align-items: flex-start; justify-content: center;
+        gap: 16px; min-height: 100%; padding: 16px; box-sizing: border-box; }
       #field { position: relative; }
       /* 4:3-ish portrait playfield (384x448 sim units), scaled up for display. */
       canvas { display: block; background: #02030a; image-rendering: pixelated;
         box-shadow: 0 0 0 1px #1c2233, 0 0 40px #0a1430; }
-      /* Dev overlay: tick / hash / debugger state. Not part of the engine. */
-      #hud { position: absolute; top: 8px; left: 8px; pointer-events: none;
-        white-space: pre; text-shadow: 0 1px 2px #000; opacity: 0.9; }
-      #help { position: absolute; bottom: 8px; left: 8px; right: 8px;
-        pointer-events: none; opacity: 0.6; text-shadow: 0 1px 2px #000; }
+      /* Faint controls overlay along the bottom of the field. */
+      #help { position: absolute; bottom: 6px; left: 8px; right: 8px;
+        pointer-events: none; opacity: 0.55; text-shadow: 0 1px 2px #000; }
+      /* Side HUD: reads sim state every frame (lives/bombs/graze, boss gauges,
+         debug). Plus the replay save/load controls. */
+      #sidebar { width: 230px; display: flex; flex-direction: column; gap: 14px; }
+      #hud { white-space: pre; text-shadow: 0 1px 2px #000; }
+      #replay-controls { display: flex; flex-direction: column; gap: 6px;
+        border-top: 1px solid #1c2233; padding-top: 12px; }
+      #replay-controls button { font: inherit; text-align: left; cursor: pointer;
+        color: #cdd6ea; background: #11151f; border: 1px solid #2a3346;
+        border-radius: 4px; padding: 6px 9px; }
+      #replay-controls button:hover { background: #182030; border-color: #3a4660; }
     </style>
   </head>
   <body>
     <div id="stage">
       <div id="field">
         <canvas id="playfield"></canvas>
-        <div id="hud"></div>
-        <div id="help">move: arrows/WASD · focus: shift · &nbsp; space: pause · .: step · ,: back · 1/2/3: speed</div>
+        <div id="help">move: arrows/WASD · shoot: Z · bomb: X · focus: shift &nbsp; — &nbsp; space: pause · .: step · ,: back · 1/2/3: speed</div>
       </div>
+      <aside id="sidebar">
+        <div id="hud"></div>
+        <div id="replay-controls">
+          <button id="save-replay" type="button">⬇ Save replay</button>
+          <button id="load-replay" type="button">⬆ Load replay…</button>
+          <input id="replay-file" type="file" accept=".hreplay,application/octet-stream" hidden />
+        </div>
+      </aside>
     </div>
     <script type="module" src="/src/demo/main.ts"></script>
   </body>
