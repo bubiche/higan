@@ -16,6 +16,7 @@ import type { GameDefinition } from "../api/game";
 import type { ShellInput } from "./keyboard";
 import type { BulletRenderer } from "../render/bullets";
 import type { LaserRenderer } from "../render/lasers";
+import type { SaveData } from "./save";
 
 export interface Screen {
   /** Called when this screen becomes active (build DOM, create the sim, etc.). */
@@ -46,6 +47,13 @@ export interface Shell {
   readonly lasers: LaserRenderer;
   readonly def: GameDefinition;
   readonly router: Router;
+  /** The in-memory save document. Options edits `save.settings` in place, then calls
+   *  `persist()`; nothing here is part of the simulation or its hash. */
+  readonly save: SaveData;
+  /** Write the current `save` to localStorage. */
+  persist(): void;
+  /** Re-apply `save.settings.displayScale` to the canvas (live, no reload). */
+  applyDisplayScale(): void;
 }
 
 export interface Router {

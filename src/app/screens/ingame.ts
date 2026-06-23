@@ -11,6 +11,8 @@
 
 import type { Screen, Shell } from "../screen";
 import { createResultsScreen, type RunOutcome } from "./results";
+import { createPauseScreen } from "./pause";
+import { createContinueScreen } from "./continue";
 import { createHud, type Hud } from "../hud";
 import { createSimulation, type Simulation } from "../../core/sim";
 import { createSimDriver, type SimDriver } from "../../core/runtime";
@@ -142,7 +144,13 @@ export function createInGameScreen(shell: Shell): InGameScreen {
 
   const end = (outcome: RunOutcome): void => {
     ended = true;
-    shell.router.replace(createResultsScreen(shell, outcome));
+    if (outcome === "gameover") {
+      // Push (not replace) so the frozen death moment shows behind the prompt; the
+      // continue choice then either rebuilds the run or falls through to results.
+      shell.router.push(createContinueScreen(shell));
+    } else {
+      shell.router.replace(createResultsScreen(shell, outcome));
+    }
   };
 
   return {
@@ -157,6 +165,13 @@ export function createInGameScreen(shell: Shell): InGameScreen {
       // Debugger controls drive the LOOP, not the sim — kept out of the input log
       // so they can never poison a replay.
       for (const code of input.takeEvents()) {
+        if (code === "Escape") {
+          // Flow-pause: hand control to the pause overlay. Return BEFORE advancing
+          // the sim so no extra tick runs this frame and end-detection can't fire
+          // into the just-pushed pause screen (which would corrupt the stack).
+          shell.router.push(createPauseScreen(shell));
+          return;
+        }
         if (code === "Space") driver.togglePause();
         else if (code === "Period") driver.singleStep();
         else if (code === "Comma") driver.stepBack();

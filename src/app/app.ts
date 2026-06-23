@@ -20,9 +20,8 @@ import { PLAYFIELD_W, PLAYFIELD_H } from "../core/playfield";
 import { createShellInput, type ShellInput } from "./keyboard";
 import { createRouter, type Router, type Shell } from "./screen";
 import { createTitleScreen } from "./screens/title";
+import { loadSave, persistSave, clampDisplayScale } from "./save";
 import type { GameDefinition } from "../api/game";
-
-const CSS_SCALE = 1.6;
 
 export interface AppHandle {
   readonly router: Router;
@@ -37,14 +36,19 @@ export function runGame(def: GameDefinition): AppHandle {
   const sidebar = document.getElementById("sidebar") as HTMLElement;
   const gl = createGL(canvas);
 
+  // Load persisted settings BEFORE the first resize so the saved display scale is
+  // applied on boot, not after a flash at the default.
+  const save = loadSave();
+
   const resize = (): void => {
+    const scale = clampDisplayScale(save.settings.displayScale);
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.style.width = `${PLAYFIELD_W * CSS_SCALE}px`;
-    canvas.style.height = `${PLAYFIELD_H * CSS_SCALE}px`;
+    canvas.style.width = `${PLAYFIELD_W * scale}px`;
+    canvas.style.height = `${PLAYFIELD_H * scale}px`;
     // Bullets are sized in sim units and projected through the GL viewport, so DPR
     // is handled entirely here — no per-instance pixel scaling.
-    canvas.width = Math.round(PLAYFIELD_W * CSS_SCALE * dpr);
-    canvas.height = Math.round(PLAYFIELD_H * CSS_SCALE * dpr);
+    canvas.width = Math.round(PLAYFIELD_W * scale * dpr);
+    canvas.height = Math.round(PLAYFIELD_H * scale * dpr);
     gl.viewport(0, 0, canvas.width, canvas.height);
   };
   resize();
@@ -66,8 +70,15 @@ export function runGame(def: GameDefinition): AppHandle {
     bullets,
     lasers,
     def,
+    save,
     get router(): Router {
       return router;
+    },
+    persist(): void {
+      persistSave(save);
+    },
+    applyDisplayScale(): void {
+      resize();
     },
   };
   router = createRouter(createTitleScreen(shell));

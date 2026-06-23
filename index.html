@@ -15,13 +15,25 @@
       /* 4:3-ish portrait playfield (384x448 sim units), scaled up for display. */
       canvas { display: block; background: #02030a; image-rendering: pixelated;
         box-shadow: 0 0 0 1px #1c2233, 0 0 40px #0a1430; }
-      /* Per-screen DOM layer over the playfield: full-field menus (title, results).
-         Screens manage their own content; pointer-events pass through to the field. */
+      /* Per-screen DOM layer over the playfield. Each screen appends its OWN element
+         here (never overwrites a shared node), so overlays stack: an Options menu
+         pushed over a paused menu sits on top and pops away cleanly, leaving the menu
+         beneath untouched. Keyboard-only, so pointer-events pass through to the field. */
       #overlay { position: absolute; inset: 0; pointer-events: none; }
-      .screen-center { position: absolute; inset: 0; display: flex;
-        align-items: center; justify-content: center; text-align: center; }
+      /* A full-field menu/result screen. Its backdrop dims whatever is beneath —
+         the frozen playfield (pause) or the menu under it (options over pause). */
+      .menu-screen { position: absolute; inset: 0; display: flex;
+        align-items: center; justify-content: center; text-align: center;
+        background: rgba(4, 6, 12, 0.72); }
       .menu-card h1 { margin: 0 0 14px; font-size: 34px; letter-spacing: 6px;
         font-weight: 700; color: #e7edff; text-shadow: 0 0 24px #2a52d0; }
+      .menu-list { display: inline-flex; flex-direction: column; gap: 6px;
+        margin: 8px 0 16px; min-width: 240px; }
+      .menu-item { display: flex; justify-content: space-between; gap: 18px;
+        padding: 4px 12px; border-radius: 4px; color: #8d97ac; white-space: pre; }
+      .menu-item.sel { color: #e7edff; background: #16203a;
+        box-shadow: inset 0 0 0 1px #2a3a66; }
+      .menu-value { color: #cdd6ea; }
       .menu-hint { margin: 0; opacity: 0.7; }
       .menu-hint b { color: #cdd6ea; }
       /* Side HUD + replay controls — built by the in-game screen into this panel. */
@@ -47,9 +59,9 @@
       <aside id="sidebar"></aside>
     </div>
     <p id="controls-hint">
-      move: arrows/WASD · shoot: Z · bomb: X · focus: shift
-      &nbsp;—&nbsp; space: pause · .: step · ,: back · 1/2/3: speed
-      &nbsp;—&nbsp; Z/Enter: confirm
+      move: arrows/WASD · shoot: Z · bomb: X · focus: shift · esc: pause
+      &nbsp;—&nbsp; space: debug-pause · .: step · ,: back · 1/2/3: speed
+      &nbsp;—&nbsp; menus: ↑/↓ select · ←/→ adjust · Z/Enter: confirm
     </p>
     <script type="module" src="/games/demo/main.ts"></script>
   </body>
