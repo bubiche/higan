@@ -41,13 +41,26 @@ import {
   type PlayerConfig,
 } from "../touhou/player";
 import { stepCollision } from "../touhou/collision";
+import {
+  createShotSystem,
+  fireShots,
+  stepShotCollision,
+  DEFAULT_SHOT_CONFIG,
+  type ShotSystem,
+  type ShotConfig,
+} from "../touhou/shot";
 
 /** Bullet-store capacity a stage sim allocates — also the size the renderer's
  *  instance buffer is built to, so the shell can size renderers before a sim exists. */
 export const SIM_CAPACITY = 4096;
 /** Laser-pool capacity (the renderer's beam buffer is sized to match). */
 export const LASER_CAPACITY = 64;
+/** Player-shot pool capacity (the renderer marshals at most this many shots). */
+export const SHOT_CAPACITY = 256;
 const CULL_MARGIN = 16;
+/** Boss collision radius — the disc player shots damage. A constant for the demo
+ *  (the boss origin is static); a per-boss hitbox/position is a content seam later. */
+const BOSS_HIT_RADIUS = 22;
 
 /** Ticks each showcase pattern runs before the scene advances to the next. */
 export const PATTERN_TICKS = 150;
@@ -81,6 +94,8 @@ export interface Simulation {
   readonly system: BulletSystem;
   /** The laser system (the pool of straight beams) the renderer draws. */
   readonly lasers: LaserSystem;
+  /** The player-shot pool (the offensive bullets the player fires) the renderer draws. */
+  readonly shots: ShotSystem;
   /** The player struct (position + game state). Read-only to consumers — only the
    *  sim mutates it, so the HUD/renderer can never become a second source of truth. */
   readonly player: Readonly<Player>;
@@ -101,6 +116,7 @@ export function createSimulation(
   patterns: readonly ScenePattern[],
   config: PlayerConfig = DEFAULT_PLAYER_CONFIG,
   boss?: BossScript,
+  shot: ShotConfig = DEFAULT_SHOT_CONFIG,
 ): Simulation {
   const rng = new Rng(seed);
   const system = createBulletSystem(
@@ -108,11 +124,19 @@ export function createSimulation(
     SIM_CAPACITY,
   );
   const lasers = createLaserSystem(LASER_CAPACITY);
+  const shots = createShotSystem(
+    { width: PLAYFIELD_W, height: PLAYFIELD_H, margin: CULL_MARGIN },
+    SHOT_CAPACITY,
+  );
 
   // Spawn / respawn position — the bottom-centre start. A constant (not hashed),
   // passed to the lifecycle step so a respawn returns the player here.
   const START_X = PLAYFIELD_W / 2;
   const START_Y = PLAYFIELD_H * 0.8;
+  // Boss origin (static for the demo): child emitters spawn here, and it is the
+  // centre of the disc player shots damage.
+  const BOSS_ORIGIN_X = PLAYFIELD_W / 2;
+  const BOSS_ORIGIN_Y = PLAYFIELD_H * 0.16;
   const player = createPlayer(config, START_X, START_Y);
   // The shared aim/home target. A stable object that views the player position:
   // emitters and the bullet update loop read it each tick; we mutate its fields in
@@ -220,7 +244,7 @@ export function createSimulation(
       timeLeft: () => bossState.timeLeft,
       captured: () => player.spellCapturedNoMiss,
     };
-    bossRoot = startBoss(boss, PLAYFIELD_W / 2, PLAYFIELD_H * 0.16, 0, bossDeps);
+    bossRoot = startBoss(boss, BOSS_ORIGIN_X, BOSS_ORIGIN_Y, 0, bossDeps);
     running.push(bossRoot);
   }
 
@@ -244,6 +268,16 @@ export function createSimulation(
   const lwid = new Float32Array(LASER_CAPACITY);
   const lspin = new Float32Array(LASER_CAPACITY);
   const lage = new Float32Array(LASER_CAPACITY);
+  // Player-shot scratch (live shots, packed in pool order — deterministic). Motion
+  // + the sim-affecting fields (damage drains boss HP, radius sets the hit test);
+  // sprite/colour are render-only and left out, as laser colour is.
+  const shx = new Float32Array(SHOT_CAPACITY);
+  const shy = new Float32Array(SHOT_CAPACITY);
+  const shvx = new Float32Array(SHOT_CAPACITY);
+  const shvy = new Float32Array(SHOT_CAPACITY);
+  const shage = new Float32Array(SHOT_CAPACITY);
+  const shdmg = new Float32Array(SHOT_CAPACITY);
+  const shrad = new Float32Array(SHOT_CAPACITY);
   // Running-emitter scratch: (resumeTick, group) per live emitter, in array order
   // (deterministic). Directly fingerprints the scheduler — the central new
   // machinery — beyond what the bullets those emitters spawn already imply. NOTE:
@@ -252,9 +286,10 @@ export function createSimulation(
   const EMITTER_SCRATCH = 64;
   const semitRT = new Float32Array(EMITTER_SCRATCH);
   const semitG = new Float32Array(EMITTER_SCRATCH);
-  // Scalar block: sim/scene/laser state (0-7), the full player struct (8-17), and
-  // boss/spell state (18-22: hp, timeLeft, nextGroupId, active, defeated).
-  const scalars = new Float32Array(23);
+  // Scalar block: sim/scene/laser state (0-7), the full player struct (8-17),
+  // boss/spell state (18-22: hp, timeLeft, nextGroupId, active, defeated), and the
+  // player-shot live count (23).
+  const scalars = new Float32Array(24);
 
   const step = (input: InputFrame): void => {
     // 1. Player movement from input (focus-aware speed, clamped to the field).
@@ -264,23 +299,21 @@ export function createSimulation(
     target.x = player.x;
     target.y = player.y;
 
+    // 2b. Player fires (ZERO RNG — deterministic cadence + fixed angles, so the
+    //     player never perturbs any danmaku stream, §c). Shots spawn at the just-
+    //     moved player position and advance with the bullets below.
+    fireShots(shots, player, input, shot, tick);
+
     // 3-4. Scene. Either a boss (an emitter-of-emitters root that drives ordered
     //      phases) OR the showcase pattern cycle. Both advance through the same
     //      scheduler array via stepRunning().
     if (bossRoot) {
       stepRunning();
       if (bossRoot.done) bossState.defeated = true;
-      // Phase HP/timer evolve HERE, not in the boss coroutine: `input.shoot` is
-      // sim-only, and damage must not depend on how often the coroutine resumes.
-      // shoot is level-triggered (held = continuous damage) — unlike bomb, which is
-      // edge-detected. The coroutine only reads hp/timer to decide transitions.
-      if (bossState.active) {
-        if (bossState.timeLeft > 0) bossState.timeLeft--;
-        if (input.shoot && bossState.hp > 0 && player.state !== PlayerState.GameOver) {
-          bossState.hp -= config.shotDps * dt;
-          if (bossState.hp < 0) bossState.hp = 0;
-        }
-      }
+      // The phase TIMER evolves here (tick-driven); the coroutine only reads hp/timer
+      // to decide transitions. HP is drained by player shots LANDING (step 5b), not
+      // by the old position-independent stub.
+      if (bossState.active && bossState.timeLeft > 0) bossState.timeLeft--;
     } else if (patterns.length > 0) {
       const idx = Math.floor(tick / PATTERN_TICKS) % patterns.length;
       if (idx !== patternIndex) startPattern(idx, tick);
@@ -297,6 +330,23 @@ export function createSimulation(
 
     // 5. Advance bullets (homing reads the shared target), cull off-field.
     system.update(dt, target.x, target.y);
+    // 5b. Advance player shots, then resolve shot-vs-boss — this REPLACES the old
+    //     position-independent shotDps drain. HP now falls only as shots actually
+    //     land, so aim/position matters (a cleaner clear ends a phase sooner). Run
+    //     AFTER stepRunning so the coroutine read this tick's pre-drain HP (the same
+    //     one-tick transition lag the stub had — see api/boss.ts).
+    shots.update(dt);
+    if (bossRoot && bossState.active && bossState.hp > 0 && player.state !== PlayerState.GameOver) {
+      const dmg = stepShotCollision(shots, {
+        x: BOSS_ORIGIN_X,
+        y: BOSS_ORIGIN_Y,
+        radius: BOSS_HIT_RADIUS,
+      });
+      if (dmg > 0) {
+        bossState.hp -= dmg;
+        if (bossState.hp < 0) bossState.hp = 0;
+      }
+    }
     // 6. Advance beams (age the telegraph→fire→fade lifecycle, sweep, despawn).
     lasers.update(dt);
     // 7. Player-vs-field pass — graze (a write) + hit detection (read-only over
@@ -351,6 +401,21 @@ export function createSimulation(
       lage[m] = l.age;
       m++;
     }
+    // Compact live player shots in pool order (same rationale as bullet slots).
+    const sp = shots.shots;
+    let k = 0;
+    for (let i = 0; i < sp.length; i++) {
+      const s = sp[i];
+      if (!s.alive) continue;
+      shx[k] = s.x;
+      shy[k] = s.y;
+      shvx[k] = s.vx;
+      shvy[k] = s.vy;
+      shage[k] = s.age;
+      shdmg[k] = s.damage;
+      shrad[k] = s.radius;
+      k++;
+    }
     // Pack live emitters' schedule state (array order — deterministic).
     let e = 0;
     for (let i = 0; i < running.length && e < EMITTER_SCRATCH; i++) {
@@ -381,6 +446,7 @@ export function createSimulation(
     scalars[20] = nextGroupId;
     scalars[21] = bossState.active ? 1 : 0;
     scalars[22] = bossState.defeated ? 1 : 0;
+    scalars[23] = shots.liveCount;
     return hashFloat32Arrays([
       sx.subarray(0, n),
       sy.subarray(0, n),
@@ -400,6 +466,13 @@ export function createSimulation(
       lwid.subarray(0, m),
       lspin.subarray(0, m),
       lage.subarray(0, m),
+      shx.subarray(0, k),
+      shy.subarray(0, k),
+      shvx.subarray(0, k),
+      shvy.subarray(0, k),
+      shage.subarray(0, k),
+      shdmg.subarray(0, k),
+      shrad.subarray(0, k),
       semitRT.subarray(0, e),
       semitG.subarray(0, e),
       scalars,
@@ -412,6 +485,7 @@ export function createSimulation(
     },
     system,
     lasers,
+    shots,
     player,
     get patternName() {
       if (bossRoot) {

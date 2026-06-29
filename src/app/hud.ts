@@ -84,6 +84,7 @@ export function createHud(panel: HTMLElement): Hud {
       lines.push(`tick    ${driver.tick}`);
       lines.push(`phase   ${sim.patternName}`);
       lines.push(`bullets ${sim.system.liveCount}`);
+      lines.push(`shots   ${sim.shots.liveCount}`);
       lines.push(`beams   ${frame.beams}`);
       lines.push(`drawn   ${frame.drawn}`);
       lines.push(`hash    0x${sim.hash().toString(16).padStart(8, "0")}`);
@@ -91,7 +92,7 @@ export function createHud(panel: HTMLElement): Hud {
 
       lines.push("");
       lines.push("── replay ──");
-      lines.push(frame.replayStatus || "Z to drain HP · save/load below");
+      lines.push(frame.replayStatus || "Z to shoot · save/load below");
 
       panel.textContent = lines.join("\n");
     },

@@ -16,6 +16,7 @@
 import type { ScenePattern } from "./emitter";
 import type { BossScript } from "./boss";
 import type { PlayerConfig } from "../touhou/player";
+import type { ShotConfig } from "../touhou/shot";
 
 /**
  * One stage of a game. For now the scene is the boss (an emitter-of-emitters) plus
@@ -30,10 +31,14 @@ export interface StageDef {
   readonly patterns?: readonly ScenePattern[];
 }
 
-/** A playable character: its tuning config (shot/bomb/hitbox graduate here later). */
+/** A playable character: its movement/life tuning plus its shot definition. (Bomb
+ *  def graduates here later, alongside scoring.) */
 export interface CharacterDef {
   readonly id: string;
   readonly config: PlayerConfig;
+  /** The character's player-shot definition. Defaults to the engine's standard shot
+   *  if omitted, so a minimal game needn't author one. */
+  readonly shot?: ShotConfig;
 }
 
 export interface GameDefinition {

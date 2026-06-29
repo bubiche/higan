@@ -12,6 +12,7 @@
 import { createSimulation } from "./sim";
 import type { ScenePattern } from "../api/emitter";
 import type { BossScript } from "../api/boss";
+import type { ShotConfig } from "../touhou/shot";
 import type { InputFrame } from "./input";
 
 export interface DeterminismResult {
@@ -35,6 +36,8 @@ export interface DeterminismResult {
  *
  * Pass `boss` to drive a boss scene instead of the pattern cycle, so the guard
  * exercises the multi-emitter scheduler + child-spawn + retarget (the new machinery).
+ * Pass `shot` so the guard exercises the game's real player-shot definition (shots
+ * fire from `input.shoot` and fold into the hash); omit for the engine default.
  */
 export function checkDeterministic(
   seed: number,
@@ -42,9 +45,10 @@ export function checkDeterministic(
   dt: number,
   patterns: readonly ScenePattern[],
   boss?: BossScript,
+  shot?: ShotConfig,
 ): DeterminismResult {
   const run = (): number => {
-    const sim = createSimulation(seed, dt, patterns, undefined, boss);
+    const sim = createSimulation(seed, dt, patterns, undefined, boss, shot);
     let acc = 0x811c9dc5;
     for (let i = 0; i < inputs.length; i++) {
       sim.step(inputs[i]!);
@@ -64,8 +68,9 @@ export function assertDeterministic(
   dt: number,
   patterns: readonly ScenePattern[],
   boss?: BossScript,
+  shot?: ShotConfig,
 ): DeterminismResult {
-  const result = checkDeterministic(seed, inputs, dt, patterns, boss);
+  const result = checkDeterministic(seed, inputs, dt, patterns, boss, shot);
   if (!result.ok) {
     throw new Error(
       `Determinism check FAILED: hash ${result.hashA} !== ${result.hashB} ` +

@@ -52,11 +52,6 @@ export interface PlayerConfig {
   readonly respawnInvuln: number;
   /** I-frames granted after a bomb, in ticks. */
   readonly bombInvuln: number;
-  /** Damage per second the player deals to the boss while `shoot` is held. There
-   *  are no player-shot entities yet, so this is a minimal "shoot to drain HP"
-   *  model — position-independent — enough to make spell-card capture a real,
-   *  deterministic loop. */
-  readonly shotDps: number;
 }
 
 export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
@@ -70,7 +65,6 @@ export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   deathbombWindow: 8,
   respawnInvuln: 120,
   bombInvuln: 120,
-  shotDps: 240,
 };
 
 /** The mutable player struct. All fields are deterministic and folded into the
@@ -84,8 +78,8 @@ export interface Player {
   bombs: number;
   /** Graze count; incremented once per bullet lifetime (see collision). */
   graze: number;
-  /** Reserved for M4a scoring; affects nothing yet, present so the hash layout
-   *  doesn't reshuffle when scoring lands. */
+  /** Shot power level — scales the player-shot stream count (see touhou/shot.ts).
+   *  Starts at 0; items feed it later. (Graduates into run-state when scoring lands.) */
   power: number;
   /** >0 = invulnerable (i-frames after respawn/bomb); counts down. */
   invulnTicks: number;

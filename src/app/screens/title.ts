@@ -12,9 +12,13 @@ import { createInGameScreen } from "./ingame";
 import { createOptionsScreen } from "./options";
 
 export function createTitleScreen(shell: Shell): Screen {
-  const { overlay, input, router, def } = shell;
+  const { overlay, input, def } = shell;
   let menu: Menu;
 
+  // `shell.router` is read lazily inside the callbacks (NOT destructured here): the
+  // title is the initial screen, so it is constructed by `createRouter(...)` before
+  // the shell's `router` field is assigned. Destructuring would capture `undefined`;
+  // the getter resolves correctly by the time a menu action fires.
   return {
     enter(): void {
       // Drop the keypress that brought us here so it isn't re-read as a confirm.
@@ -23,8 +27,8 @@ export function createTitleScreen(shell: Shell): Screen {
         title: def.title,
         hint: "↑/↓ select · Z / Enter confirm",
         items: [
-          { kind: "action", label: "Start", onConfirm: () => router.replace(createInGameScreen(shell)) },
-          { kind: "action", label: "Options", onConfirm: () => router.push(createOptionsScreen(shell)) },
+          { kind: "action", label: "Start", onConfirm: () => shell.router.replace(createInGameScreen(shell)) },
+          { kind: "action", label: "Options", onConfirm: () => shell.router.push(createOptionsScreen(shell)) },
         ],
       });
     },

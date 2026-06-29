@@ -113,6 +113,14 @@ export interface BulletRenderer {
     highWater: number,
     overlays?: readonly Overlay[],
   ): number;
+  /**
+   * Draw `count` caller-marshalled instances (player shots, items, …) on the same
+   * instanced program — the generalisation of the one-instance overlay path. `data`
+   * holds `INSTANCE_FLOATS` per instance (x, y, scale, angle, r, g, b, layer).
+   * Reuses the instance buffer head, so it must be issued before any later draw that
+   * overwrites it (same ordering the overlay loop relies on). A no-op for count ≤ 0.
+   */
+  drawInstances(data: Float32Array, count: number): void;
 }
 
 export function createBulletRenderer(
@@ -200,6 +208,19 @@ export function createBulletRenderer(
       }
       gl.bindVertexArray(null);
       return count;
+    },
+    drawInstances(data, count): void {
+      if (count <= 0) return;
+      gl.useProgram(prog);
+      gl.uniform2f(uViewport, fieldW, fieldH);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
+      gl.uniform1i(uTex, 0);
+      gl.bindVertexArray(vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, instBuf);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, data, 0, count * INSTANCE_FLOATS);
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, count);
+      gl.bindVertexArray(null);
     },
   };
 }

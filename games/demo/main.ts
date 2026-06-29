@@ -17,12 +17,16 @@ import type { BossScript } from "../../src/api";
 
 const SEED = demoGame.seed;
 const boss = demoGame.stages[0]!.boss!;
+const shot = demoGame.characters[0]!.shot;
 
-// The determinism run holds shoot and weaves so it drains HP and spans the boss's
-// phases (including the retarget spell) — exercising the multi-emitter scheduler,
-// child-spawn, and retarget, the machinery the guard most needs to cover.
+// The determinism run holds shoot and weaves so player shots drain the boss's HP and
+// the window spans all four phases — the opening plus the three spells, including the
+// live-group-retarget (phase 2) and the beam-rake lasers (phase 3) — exercising the
+// multi-emitter scheduler, child-spawn, retarget, lasers, AND the player-shot pool +
+// shot-vs-boss collision, the machinery the guard most needs to cover. (Shot-driven
+// damage is slower than the old position-independent stub, so the window is longer.)
 const scripted: InputFrame[] = [];
-const GUARD_TICKS = 1300;
+const GUARD_TICKS = 2600;
 for (let i = 0; i < GUARD_TICKS; i++) {
   scripted.push({
     dx: (i >> 3) % 2 ? 1 : -1,
@@ -33,9 +37,10 @@ for (let i = 0; i < GUARD_TICKS; i++) {
   });
 }
 
-// Continuous determinism guard: same seed + scripted input + boss, twice, must hash
-// identically.
-const det = assertDeterministic(SEED, scripted, DT, [], boss);
+// Continuous determinism guard: same seed + scripted input + boss + shot, twice,
+// must hash identically. The scripted input holds shoot, so player shots fire,
+// damage the boss, and fold into the trajectory hash.
+const det = assertDeterministic(SEED, scripted, DT, [], boss, shot);
 console.info(
   `[higan] determinism OK (boss) — hash 0x${det.hashA.toString(16).padStart(8, "0")} over ${det.ticks} ticks`,
 );
@@ -53,7 +58,7 @@ for (let i = 0; i < PATTERN_TICKS * (SHOWCASE.length + 2); i++) {
     bomb: false,
   });
 }
-assertDeterministic(SEED, showcaseScript, DT, SHOWCASE);
+assertDeterministic(SEED, showcaseScript, DT, SHOWCASE, undefined, shot);
 
 const app = runGame(demoGame);
 
@@ -65,7 +70,7 @@ if (import.meta.hot) {
   import.meta.hot.accept("./patterns/boss", (mod) => {
     if (!mod) return;
     const newBoss = (mod as unknown as { DEMO_BOSS: BossScript }).DEMO_BOSS;
-    assertDeterministic(SEED, scripted, DT, [], newBoss);
+    assertDeterministic(SEED, scripted, DT, [], newBoss, shot);
     asInGame(app.router.top)?.hotReloadBoss(newBoss);
     console.info("[higan] boss hot-reloaded");
   });

@@ -14,13 +14,15 @@ import { createResultsScreen, type RunOutcome } from "./results";
 import { createPauseScreen } from "./pause";
 import { createContinueScreen } from "./continue";
 import { createHud, type Hud } from "../hud";
-import { createSimulation, type Simulation } from "../../core/sim";
+import { createSimulation, type Simulation, SHOT_CAPACITY } from "../../core/sim";
 import { createSimDriver, type SimDriver } from "../../core/runtime";
 import { DT } from "../../core/playfield";
 import { PlayerState } from "../../touhou/player";
+import { DEFAULT_SHOT_CONFIG } from "../../touhou/shot";
 import { serializeReplay, deserializeReplay } from "../../touhou/replay";
 import { Shape } from "../../render/shapes";
-import type { Overlay } from "../../render/bullets";
+import { INSTANCE_FLOATS, type Overlay } from "../../render/bullets";
+import { marshalShots } from "../../render/shots";
 import type { BossScript } from "../../api/boss";
 
 /** Speeds the number keys cycle through (debugger slow-mo). */
@@ -44,10 +46,11 @@ export function createInGameScreen(shell: Shell): InGameScreen {
   const stage = def.stages[0]!;
   const character = def.characters[0]!;
   const patterns = stage.patterns ?? [];
+  const shotConfig = character.shot ?? DEFAULT_SHOT_CONFIG;
   // Reassignable so a backward-scrub / hot-reload can rebuild from the seed; the
   // driver's `step`/`rebuild` close over these bindings.
   let boss = stage.boss;
-  let sim: Simulation = createSimulation(def.seed, DT, patterns, character.config, boss);
+  let sim: Simulation = createSimulation(def.seed, DT, patterns, character.config, boss, shotConfig);
 
   const driver: SimDriver = createSimDriver({
     dt: DT,
@@ -55,9 +58,14 @@ export function createInGameScreen(shell: Shell): InGameScreen {
     sampleInput: (tick) => input.sample(tick),
     step: (frame) => sim.step(frame),
     rebuild: (seed) => {
-      sim = createSimulation(seed, DT, patterns, character.config, boss);
+      sim = createSimulation(seed, DT, patterns, character.config, boss, shotConfig);
     },
   });
+
+  // Reused scratch for the player-shot instance stream (the placeholder shot layer
+  // reuses the bullet renderer's program — no separate shot shader). Sized to the
+  // pool cap × the bullet instance stride.
+  const shotInstances = new Float32Array(SHOT_CAPACITY * INSTANCE_FLOATS);
 
   // Bound to its DOM element in `buildDom` (the element doesn't exist until enter,
   // which always runs before the first frame/render).
@@ -202,9 +210,14 @@ export function createInGameScreen(shell: Shell): InGameScreen {
       if (!invulnBlink) overlays.push(playerMarker);
       if (player.focused) overlays.push(hitboxMarker);
 
-      // Beams first (behind the bullet glow); both draw additively. The canvas is
-      // cleared by the shell before the stack renders.
+      // Beams first (behind the bullet glow), then player shots (under the enemy
+      // bullets for readability), then the bullets + overlays. All draw additively;
+      // shots reuse the bullet program via `drawInstances`, issued BEFORE the bullet
+      // draw overwrites the shared instance buffer. The canvas is cleared by the
+      // shell before the stack renders.
       const beams = lasers.draw(sim.lasers.lasers);
+      const shotCount = marshalShots(sim.shots.shots, shotInstances);
+      bullets.drawInstances(shotInstances, shotCount);
       const drawn = bullets.draw(system.store, system.alive, system.highWater, overlays);
       hud.update(sim, driver, { beams, drawn, replayStatus });
     },

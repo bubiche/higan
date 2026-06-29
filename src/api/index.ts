@@ -33,6 +33,8 @@ export type { BossScript, BossContext, PhaseSpec, PhaseResult } from "./boss";
 
 export { defineGame, type GameDefinition, type StageDef, type CharacterDef } from "./game";
 
+export { DEFAULT_SHOT_CONFIG, type ShotConfig } from "../touhou/shot";
+
 export {
   linear,
   accelerate,
