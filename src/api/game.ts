@@ -13,22 +13,23 @@
 // asset slots, menus) are extracted at the seam as the reference game grows a
 // second consumer — a stable API with a single consumer is the wrong abstraction.
 
-import type { ScenePattern } from "./emitter";
+import type { StageScript } from "./stage";
 import type { BossScript } from "./boss";
 import type { PlayerConfig } from "../touhou/player";
 import type { ShotConfig } from "../touhou/shot";
 
 /**
- * One stage of a game. For now the scene is the boss (an emitter-of-emitters) plus
- * an optional showcase-style pattern cycle — exactly what the sim accepts today.
- * The richer stage-script-as-scene-root shape arrives with the sim economy work.
+ * One stage of a game. The `script` is the scene root: a coroutine (boss idiom) that
+ * orchestrates the whole stage, calling `ctx.spawnBoss()` when it's time for the
+ * boss. The `boss` is the script the stage spawns; the enemy/wave content the script
+ * fires arrives with the sim economy work (#2b).
  */
 export interface StageDef {
   readonly id: string;
-  /** The boss this stage runs, if any. */
+  /** The stage's scene-root coroutine. */
+  readonly script: StageScript;
+  /** The boss this stage spawns (via `ctx.spawnBoss()`), if any. */
   readonly boss?: BossScript;
-  /** A pattern cycle the scene runs (used when there is no boss). */
-  readonly patterns?: readonly ScenePattern[];
 }
 
 /** A playable character: its movement/life tuning plus its shot definition. (Bomb

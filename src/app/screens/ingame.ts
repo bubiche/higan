@@ -14,11 +14,11 @@ import { createResultsScreen, type RunOutcome } from "./results";
 import { createPauseScreen } from "./pause";
 import { createContinueScreen } from "./continue";
 import { createHud, type Hud } from "../hud";
-import { createSimulation, type Simulation, SHOT_CAPACITY } from "../../core/sim";
+import { createStageSim, type Simulation, SHOT_CAPACITY } from "../../core/sim";
+import { mixSeed } from "../../core/prng";
 import { createSimDriver, type SimDriver } from "../../core/runtime";
 import { DT } from "../../core/playfield";
 import { PlayerState } from "../../touhou/player";
-import { DEFAULT_SHOT_CONFIG } from "../../touhou/shot";
 import { serializeReplay, deserializeReplay } from "../../touhou/replay";
 import { Shape } from "../../render/shapes";
 import { INSTANCE_FLOATS, type Overlay } from "../../render/bullets";
@@ -45,12 +45,16 @@ export function createInGameScreen(shell: Shell): InGameScreen {
   const { sidebar, input, bullets, lasers, def } = shell;
   const stage = def.stages[0]!;
   const character = def.characters[0]!;
-  const patterns = stage.patterns ?? [];
-  const shotConfig = character.shot ?? DEFAULT_SHOT_CONFIG;
-  // Reassignable so a backward-scrub / hot-reload can rebuild from the seed; the
-  // driver's `step`/`rebuild` close over these bindings.
+  // The slice runs the first stage as stage 0 of the run. The driver is seeded with
+  // the RUN seed (what a replay captures); the per-stage seed is mixed from it, so
+  // chaining more stages later only changes the index. `boss` stays a mutable
+  // binding so a hot-reload swaps the boss the stage spawns and `resync` rebuilds
+  // with it. The sim is reassignable so backward-scrub / hot-reload can rebuild.
+  const STAGE_INDEX = 0;
   let boss = stage.boss;
-  let sim: Simulation = createSimulation(def.seed, DT, patterns, character.config, boss, shotConfig);
+  const buildSim = (runSeed: number): Simulation =>
+    createStageSim({ ...stage, boss }, mixSeed(runSeed, STAGE_INDEX), character, DT);
+  let sim: Simulation = buildSim(def.seed);
 
   const driver: SimDriver = createSimDriver({
     dt: DT,
@@ -58,7 +62,7 @@ export function createInGameScreen(shell: Shell): InGameScreen {
     sampleInput: (tick) => input.sample(tick),
     step: (frame) => sim.step(frame),
     rebuild: (seed) => {
-      sim = createSimulation(seed, DT, patterns, character.config, boss, shotConfig);
+      sim = buildSim(seed);
     },
   });
 

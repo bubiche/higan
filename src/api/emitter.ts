@@ -192,12 +192,16 @@ export interface RunningEmitter {
 export interface EmitterDeps {
   readonly system: BulletSystem;
   readonly lasers: LaserSystem;
-  readonly rng: Rng;
   /** Shared target the scheduler keeps current; `aimed`/home read it. */
   readonly target: Readonly<Vec2>;
-  /** Append a child emitter to the scheduler, resuming next tick, tagged `group`.
-   *  Provided by the sim (which owns the scheduler array). */
-  spawnChild(script: EmitterScript, x: number, y: number, group: number): void;
+  /**
+   * Append a child emitter to the scheduler, resuming next tick, tagged `group`,
+   * running on `rng`. Provided by the sim (which owns the scheduler array). The
+   * caller passes its OWN stream so a child inherits the parent's RNG stream (boss
+   * children draw from the boss stream, enemy children from the enemy stream) — the
+   * one randomness source is no longer global, it flows down the spawn tree.
+   */
+  spawnChild(script: EmitterScript, x: number, y: number, group: number, rng: Rng): void;
 }
 
 /** Build a retargetable handle over the captured `(slot, gen)` pairs. */
@@ -223,8 +227,8 @@ function makeBulletGroup(system: BulletSystem, slots: number[], gens: number[]):
   };
 }
 
-function makeContext(deps: EmitterDeps, group: number): EmitterContext {
-  const { system, lasers, rng, target } = deps;
+function makeContext(deps: EmitterDeps, group: number, rng: Rng): EmitterContext {
+  const { system, lasers, target } = deps;
 
   // Spawn one bullet from already-resolved primitives. Accelerate is the one
   // behaviour whose stored params depend on the launch angle: its acceleration is
@@ -279,7 +283,9 @@ function makeContext(deps: EmitterDeps, group: number): EmitterContext {
     target,
     group,
     sub(script) {
-      deps.spawnChild(script, ctx.x, ctx.y, ctx.group);
+      // Inherit this emitter's stream: a child fires on the same RNG stream as its
+      // parent, so a boss's sub-emitters stay on the protected boss stream.
+      deps.spawnChild(script, ctx.x, ctx.y, ctx.group, rng);
     },
     spawnGroup(o) {
       const x = o.x ?? ctx.x;
@@ -383,16 +389,18 @@ function makeContext(deps: EmitterDeps, group: number): EmitterContext {
   return ctx;
 }
 
-/** Begin running `script` at (x, y), in `group`. Resumes first at `startTick`. */
+/** Begin running `script` at (x, y), in `group`, on RNG stream `rng`. Resumes
+ *  first at `startTick`. */
 export function startEmitter(
   script: EmitterScript,
   x: number,
   y: number,
   startTick: number,
   deps: EmitterDeps,
+  rng: Rng,
   group = 0,
 ): RunningEmitter {
-  const ctx = makeContext(deps, group);
+  const ctx = makeContext(deps, group, rng);
   ctx.x = x;
   ctx.y = y;
   return { ctx, gen: script(ctx), resumeTick: startTick, done: false, group };

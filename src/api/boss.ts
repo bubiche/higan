@@ -43,7 +43,7 @@ export interface PhaseResult {
 export interface BossDeps {
   readonly rng: Rng;
   readonly target: Readonly<Vec2>;
-  spawnChild(script: EmitterScript, x: number, y: number, group: number): void;
+  spawnChild(script: EmitterScript, x: number, y: number, group: number, rng: Rng): void;
   /** Allocate a fresh group id for the next phase's emitters. */
   nextGroup(): number;
   /** Activate a phase: publish name/hp/timer to the sim, reset capture tracking. */
@@ -91,7 +91,9 @@ function* runPhase(
 ): Generator<number, PhaseResult, unknown> {
   const group = deps.nextGroup();
   deps.beginPhase(spec);
-  deps.spawnChild(body, ctx.x, ctx.y, group);
+  // The phase body runs on the boss stream (deps.rng) — the protected danmaku
+  // stream the player's clear-speed can't perturb.
+  deps.spawnChild(body, ctx.x, ctx.y, group, deps.rng);
   // Poll once per tick. HP and the timer are evolved by the sim (it reads
   // input.shoot); here we only read them to decide the transition. Reading hp
   // BEFORE this tick's sim-side drain means a phase ends one tick after HP truly

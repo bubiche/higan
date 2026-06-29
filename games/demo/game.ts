@@ -11,6 +11,7 @@
 import { defineGame, Shape, type ShotConfig } from "../../src/api";
 import { DEFAULT_PLAYER_CONFIG } from "../../src/touhou/player";
 import { DEMO_BOSS } from "./patterns/boss";
+import { demoStage } from "./patterns/stage";
 
 // The reference character's shot — authored content (a different game defines its
 // own with zero engine change). A pale needle that points along travel: focus
@@ -33,6 +34,6 @@ const DEMO_SHOT: ShotConfig = {
 export const demoGame = defineGame({
   title: "HIGAN",
   seed: 0x1a9e,
-  stages: [{ id: "stage-1", boss: DEMO_BOSS }],
+  stages: [{ id: "stage-1", script: demoStage, boss: DEMO_BOSS }],
   characters: [{ id: "default", config: DEFAULT_PLAYER_CONFIG, shot: DEMO_SHOT }],
 });
