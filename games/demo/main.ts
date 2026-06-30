@@ -8,6 +8,7 @@
 
 import { runGame, asInGame } from "../../src/app";
 import { assertDeterministic } from "../../src/core/determinism";
+import { assertStreamIsolation } from "../../src/core/isolation";
 import { PATTERN_TICKS } from "../../src/core/sim";
 import { mixSeed } from "../../src/core/prng";
 import { DT } from "../../src/core/playfield";
@@ -73,6 +74,21 @@ for (let i = 0; i < PATTERN_TICKS * 13; i++) {
   });
 }
 assertDeterministic(showcaseStageDef, STAGE_SEED, showcaseScript, DT, character);
+
+// Engine-seam self-test (DEV only — dead-stripped from the production bundle, where
+// a player can't introduce a stream-crossing bug): the boss's danmaku stream is
+// isolated from the play-dependent enemy stream (F4). Distinct from the determinism
+// guards above — those prove THIS game's scene reproduces; this proves a structural
+// engine property with its own minimal fixtures, by running two input streams that
+// kill different enemy counts and asserting the boss danmaku is bit-identical anyway.
+// So an edit that crosses the boss/enemy RNG streams trips here during development.
+if (import.meta.env.DEV) {
+  const iso = assertStreamIsolation(STAGE_SEED, DT);
+  console.info(
+    `[higan] stream isolation OK — boss danmaku stable over ${iso.ticks} ticks while ` +
+      `enemy-kill counts diverge (${iso.finalEnemiesShoot} vs ${iso.finalEnemiesQuiet})`,
+  );
+}
 
 const app = runGame(demoGame);
 
