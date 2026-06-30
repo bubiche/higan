@@ -35,7 +35,14 @@ export type { StageScript, StageContext, EnemySpec } from "./stage";
 
 export { ItemType, type ItemDropTable } from "../touhou/item";
 
-export { defineGame, type GameDefinition, type StageDef, type CharacterDef } from "./game";
+export {
+  defineGame,
+  DEFAULT_DIFFICULTIES,
+  type GameDefinition,
+  type StageDef,
+  type CharacterDef,
+  type DifficultyDef,
+} from "./game";
 
 export {
   DEFAULT_RUN_CONFIG,

@@ -122,6 +122,11 @@ export interface EmitterContext {
   readonly tick: number;
   /** The sim's seeded RNG — the ONLY randomness source available to emitters. */
   readonly rng: Rng;
+  /** The run's difficulty rank — a 0-based index into the game's difficulties (higher
+   *  = harder). Construction input the content branches on to scale its own density/HP;
+   *  NOT folded into the hash. Like the seed, it SHAPES the deterministic trajectory
+   *  rather than being part of it, so each rank is independently reproducible. */
+  readonly difficulty: number;
   /** Emitter position (mutable — an emitter may move itself between yields). */
   x: number;
   y: number;
@@ -194,6 +199,8 @@ export interface EmitterDeps {
   readonly lasers: LaserSystem;
   /** Shared target the scheduler keeps current; `aimed`/home read it. */
   readonly target: Readonly<Vec2>;
+  /** The run's difficulty rank, surfaced to every emitter as `ctx.difficulty`. */
+  readonly difficulty: number;
   /**
    * Append a child emitter to the scheduler, resuming next tick, tagged `group`,
    * running on `rng`. Provided by the sim (which owns the scheduler array). The
@@ -278,6 +285,7 @@ function makeContext(deps: EmitterDeps, group: number, rng: Rng): EmitterContext
   const ctx: EmitterContext = {
     tick: 0,
     rng,
+    difficulty: deps.difficulty,
     x: 0,
     y: 0,
     target,

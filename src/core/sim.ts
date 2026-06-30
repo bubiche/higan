@@ -154,6 +154,7 @@ export function createStageSim(
   stageDef: StageDef,
   stageSeed: number,
   character: CharacterDef,
+  difficulty: number,
   runConfig: RunConfig,
   dt: number,
 ): Simulation {
@@ -229,6 +230,7 @@ export function createStageSim(
     system,
     lasers,
     target,
+    difficulty,
     // A child spawned this tick is appended and first resumes NEXT tick (tick + 1):
     // no same-tick re-entry, and `stepRunning` captures the length before iterating
     // so the new entry is not visited until then. The caller passes its own stream
@@ -265,6 +267,7 @@ export function createStageSim(
     // The boss runs on its dedicated protected stream.
     rng: rngBoss,
     target,
+    difficulty,
     spawnChild: deps.spawnChild,
     nextGroup: () => nextGroupId++,
     beginPhase(spec: PhaseSpec) {
@@ -426,6 +429,7 @@ export function createStageSim(
     // The stage script runs on the (play-dependent) enemy stream.
     rng: rngEnemy,
     target,
+    difficulty,
     spawnChild: deps.spawnChild,
     spawnEnemy,
     spawnBoss,

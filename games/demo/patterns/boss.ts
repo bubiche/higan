@@ -14,6 +14,7 @@ import {
   home,
   Shape,
 } from "../../../src/api";
+import { scale } from "../difficulty";
 
 const CYAN: readonly [number, number, number] = [0.45, 0.85, 1.0];
 const MAGENTA: readonly [number, number, number] = [1.0, 0.45, 0.85];
@@ -25,11 +26,12 @@ const VIOLET: readonly [number, number, number] = [0.75, 0.6, 1.0];
 const opening: EmitterScript = function* (ctx) {
   let phase = 0;
   while (true) {
-    ctx.aimed({ count: 5, speed: 150, spread: 0.6, radius: 4, color: CYAN, sprite: Shape.Rice });
+    // Difficulty thickens the aimed volley and the backing ring per rank.
+    ctx.aimed({ count: scale(ctx.difficulty, 5, 1), speed: 150, spread: 0.6, radius: 4, color: CYAN, sprite: Shape.Rice });
     // A touch of rng jitter on the backing ring — exercises the seeded-rng path
     // (so a replay must capture the seed, which it does).
     ctx.ring({
-      count: 16,
+      count: scale(ctx.difficulty, 16, 2),
       speed: 65,
       angle: phase + ctx.rng.range(-0.08, 0.08),
       radius: 4,
@@ -57,7 +59,10 @@ const spiralVeil: EmitterScript = function* (ctx) {
     ctx.fire({ speed: 115, angle: a, radius: 4, color: MAGENTA, sprite: Shape.Star, behavior: curve(1.5) });
     ctx.fire({ speed: 115, angle: a + Math.PI, radius: 4, color: MAGENTA, sprite: Shape.Star, behavior: curve(1.5) });
     a += 0.31;
-    yield 3;
+    // Difficulty tightens the fire interval (Normal = 3, Lunatic = 1), so this spell's
+    // climax also thickens with rank — not just the waves. Centred on Normal, so the
+    // reference trajectory is unchanged; the emitter clamps the wait to ≥ 1 regardless.
+    yield scale(ctx.difficulty, 3, -1);
   }
 };
 
@@ -94,7 +99,7 @@ const beamRake: EmitterScript = function* (ctx) {
     }
     dir = -dir;
     for (let k = 0; k < 5; k++) {
-      ctx.ring({ count: 6, speed: 78, angle: k * 0.3, radius: 5, color: CYAN, sprite: Shape.Oval, behavior: home(1.1) });
+      ctx.ring({ count: scale(ctx.difficulty, 6, 1), speed: 78, angle: k * 0.3, radius: 5, color: CYAN, sprite: Shape.Oval, behavior: home(1.1) });
       ctx.aimed({ count: 1, speed: 130, radius: 4, color: AMBER, sprite: Shape.Kunai, behavior: accelerate(70) });
       yield 20;
     }

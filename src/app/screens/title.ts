@@ -9,11 +9,21 @@
 import type { Screen, Shell } from "../screen";
 import { createMenu, type Menu } from "../menu";
 import { createInGameScreen } from "./ingame";
+import { createSelectScreen } from "./select";
 import { createOptionsScreen } from "./options";
+import { DEFAULT_DIFFICULTIES } from "../../api/game";
 
 export function createTitleScreen(shell: Shell): Screen {
   const { overlay, input, def } = shell;
   let menu: Menu;
+
+  // Start → difficulty select, unless the game offers a single difficulty (the engine
+  // default), in which case there's nothing to choose: go straight in at rank 0.
+  const start = (): void => {
+    const difficulties = def.difficulties ?? DEFAULT_DIFFICULTIES;
+    if (difficulties.length <= 1) shell.router.replace(createInGameScreen(shell, 0, 0));
+    else shell.router.replace(createSelectScreen(shell));
+  };
 
   // `shell.router` is read lazily inside the callbacks (NOT destructured here): the
   // title is the initial screen, so it is constructed by `createRouter(...)` before
@@ -27,7 +37,7 @@ export function createTitleScreen(shell: Shell): Screen {
         title: def.title,
         hint: "↑/↓ select · Z / Enter confirm",
         items: [
-          { kind: "action", label: "Start", onConfirm: () => shell.router.replace(createInGameScreen(shell)) },
+          { kind: "action", label: "Start", onConfirm: start },
           { kind: "action", label: "Options", onConfirm: () => shell.router.push(createOptionsScreen(shell)) },
         ],
       });

@@ -9,6 +9,7 @@
 
 import { type StageScript, type StageContext, type EmitterScript, Shape } from "../../../src/api";
 import { PLAYFIELD_W } from "../../../src/core/playfield";
+import { scale } from "../difficulty";
 import { MIDBOSS } from "./midboss";
 
 const AMBER: readonly [number, number, number] = [1, 0.75, 0.3];
@@ -28,7 +29,8 @@ const popcorn: EmitterScript = function* (ctx) {
     yield 1;
   }
   for (let i = 0; i < 3; i++) {
-    ctx.aimed({ count: 3, spread: 0.5, speed: 150, sprite: Shape.Rice, color: [1, 0.55, 0.55] });
+    // Difficulty scales the fan's bullet count (visible density change per rank).
+    ctx.aimed({ count: scale(ctx.difficulty, 3, 1), spread: 0.5, speed: 150, sprite: Shape.Rice, color: [1, 0.55, 0.55] });
     yield 36;
   }
   for (let i = 0; i < 120; i++) {
@@ -45,7 +47,7 @@ const sweeper = (dir: number): EmitterScript =>
     for (let i = 0; i < 240; i++) {
       ctx.x += dir * 2.4;
       if (i % 45 === 30) {
-        ctx.aimed({ count: 2, spread: 0.28, speed: 135, sprite: Shape.Rice, color: TEAL });
+        ctx.aimed({ count: scale(ctx.difficulty, 2, 1), spread: 0.28, speed: 135, sprite: Shape.Rice, color: TEAL });
       }
       yield 1;
     }
@@ -59,7 +61,7 @@ const turret: EmitterScript = function* (ctx) {
     yield 1;
   }
   for (let i = 0; i < 4; i++) {
-    ctx.ring({ count: 10, speed: 70, angle: ctx.rng.range(0, Math.PI * 2), radius: 4, color: ROSE, sprite: Shape.Orb });
+    ctx.ring({ count: scale(ctx.difficulty, 10, 2), speed: 70, angle: ctx.rng.range(0, Math.PI * 2), radius: 4, color: ROSE, sprite: Shape.Orb });
     yield 40;
   }
   for (let i = 0; i < 80; i++) {
@@ -88,7 +90,8 @@ function* popcornLine(ctx: StageContext, n: number, gap: number): Generator<numb
  *  onto its own protected stream. */
 export const demoStage: StageScript = function* (ctx) {
   // ── Opening waves ──
-  yield* popcornLine(ctx, 5, 40);
+  // Difficulty scales how many popcorn each line sends (visible density per rank).
+  yield* popcornLine(ctx, scale(ctx.difficulty, 5, 1), 40);
   yield 70;
   ctx.spawnEnemy(sweeper(1), -12, 90, {
     hp: 90,
@@ -105,7 +108,7 @@ export const demoStage: StageScript = function* (ctx) {
     drops: { power: 2, point: 2 },
   });
   yield 170;
-  yield* popcornLine(ctx, 4, 36);
+  yield* popcornLine(ctx, scale(ctx.difficulty, 4, 1), 36);
   yield 130;
 
   // ── Midboss ── awaited: the stage pauses here and the waves below resume when it falls.
@@ -130,7 +133,7 @@ export const demoStage: StageScript = function* (ctx) {
     drops: { power: 3, point: 4, fullPower: 1 },
   });
   yield 210;
-  yield* popcornLine(ctx, 6, 30);
+  yield* popcornLine(ctx, scale(ctx.difficulty, 6, 1), 30);
   yield 150;
 
   // ── Final boss ── the stage RETURNS when it falls → run ends "clear".

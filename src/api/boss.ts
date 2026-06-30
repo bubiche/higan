@@ -43,6 +43,8 @@ export interface PhaseResult {
 export interface BossDeps {
   readonly rng: Rng;
   readonly target: Readonly<Vec2>;
+  /** The run's difficulty rank, surfaced to the boss as `ctx.difficulty`. */
+  readonly difficulty: number;
   spawnChild(script: EmitterScript, x: number, y: number, group: number, rng: Rng): void;
   /** Allocate a fresh group id for the next phase's emitters. */
   nextGroup(): number;
@@ -66,6 +68,10 @@ export interface BossContext {
   readonly tick: number;
   /** The sim's seeded RNG — the only randomness source (same rule as emitters). */
   readonly rng: Rng;
+  /** The run's difficulty rank (a 0-based index into the game's difficulties; higher
+   *  = harder). Construction input the boss branches on to scale its own danmaku;
+   *  not hashed (same rule as `EmitterContext.difficulty`). */
+  readonly difficulty: number;
   /** Boss position; children spawn here. (Static for the demo; a moving boss would
    *  need children to track it — a documented extension, not built.) */
   x: number;
@@ -125,6 +131,7 @@ export function startBoss(
   const ctx: BossContext = {
     tick: 0,
     rng: deps.rng,
+    difficulty: deps.difficulty,
     x,
     y,
     target: deps.target,

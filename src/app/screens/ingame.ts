@@ -51,8 +51,14 @@ export function asInGame(screen: Screen): InGameScreen | null {
  * a continue's fresh sim already resets score/lives (createPlayer defaults). It lives
  * here — threaded through the screen constructors — rather than in a RunController/
  * RunState; that struct is born at the cross-stage pass, where it also absorbs this field.
+ *
+ * `difficulty` is the chosen run rank (a 0-based index into the game's difficulties),
+ * threaded the same way: the difficulty-select screen supplies it, a continue carries
+ * it unchanged (a continue keeps the run's rank), and it feeds the sim as construction
+ * input that content branches on. Defaults to rank 0 (the game's first difficulty) for
+ * a direct construction without going through the select screen.
  */
-export function createInGameScreen(shell: Shell, continuesUsed = 0): InGameScreen {
+export function createInGameScreen(shell: Shell, continuesUsed = 0, difficulty = 0): InGameScreen {
   const { sidebar, input, bullets, lasers, def } = shell;
   const character = def.characters[0]!;
   // The slice runs the first stage as stage 0 of the run. The driver is seeded with
@@ -70,6 +76,7 @@ export function createInGameScreen(shell: Shell, continuesUsed = 0): InGameScree
       shell.def.stages[STAGE_INDEX]!,
       mixSeed(runSeed, STAGE_INDEX),
       character,
+      difficulty,
       shell.def.config,
       DT,
     );
@@ -182,9 +189,9 @@ export function createInGameScreen(shell: Shell, continuesUsed = 0): InGameScree
     ended = true;
     if (outcome === "gameover") {
       // Push (not replace) so the frozen death moment shows behind the prompt; the
-      // continue choice then either rebuilds the run (carrying the continue count) or
-      // falls through to results.
-      shell.router.push(createContinueScreen(shell, continuesUsed));
+      // continue choice then either rebuilds the run (carrying the continue count AND the
+      // chosen difficulty — a continue keeps the run's rank) or falls through to results.
+      shell.router.push(createContinueScreen(shell, continuesUsed, difficulty));
     } else {
       // Clear: hand the final score (read off the sim) to results. The game-over path
       // goes through the continue prompt instead and carries no score.

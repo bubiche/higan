@@ -45,6 +45,10 @@ export interface StageContext {
   /** The stage's seeded RNG (the enemy stream) — the only randomness source, same
    *  rule as emitters/boss. Used for wave timing/composition; never the boss stream. */
   readonly rng: Rng;
+  /** The run's difficulty rank (a 0-based index into the game's difficulties; higher
+   *  = harder). Construction input the stage branches on to scale wave density/HP;
+   *  not hashed (same rule as `EmitterContext.difficulty`). */
+  readonly difficulty: number;
   /** Stage-root position; `sub`-spawned children start here. (Mostly irrelevant —
    *  enemies/the boss carry their own origins — but it satisfies the scheduler.) */
   x: number;
@@ -96,6 +100,8 @@ export interface StageDeps {
   /** The stage's (enemy) stream. */
   readonly rng: Rng;
   readonly target: Readonly<Vec2>;
+  /** The run's difficulty rank, surfaced to the stage as `ctx.difficulty`. */
+  readonly difficulty: number;
   /** Append an emitter child to the scheduler on `rng` (the stage's stream). */
   spawnChild(script: EmitterScript, x: number, y: number, group: number, rng: Rng): void;
   /** Spawn an enemy bound to a struct slot on the enemy stream (sim-implemented). */
@@ -130,6 +136,7 @@ export function startStage(
   const ctx: StageContext = {
     tick: 0,
     rng: deps.rng,
+    difficulty: deps.difficulty,
     x,
     y,
     target: deps.target,

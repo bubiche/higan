@@ -45,6 +45,26 @@ export interface CharacterDef {
   readonly shot?: ShotConfig;
 }
 
+/**
+ * One selectable difficulty — purely the select screen's display data. The game
+ * authors the name and an optional blurb; a different game writes its own. The RANK
+ * the sim runs at is this entry's INDEX in `difficulties` (0-based), surfaced to
+ * content as `ctx.difficulty`; the engine holds no multiplier table, so the game's
+ * own scripts decide what a higher rank means. `id` is a stable key (for saves/
+ * replays) independent of the display label.
+ */
+export interface DifficultyDef {
+  readonly id: string;
+  /** Display name on the select screen (e.g. "Normal", "Lunatic"). */
+  readonly label: string;
+  /** Optional one-line blurb shown when this difficulty is highlighted. */
+  readonly description?: string;
+}
+
+/** The engine's fallback difficulty list for a game that authors none: a single
+ *  "Normal" rank (index 0). A game with real difficulty tiers supplies its own. */
+export const DEFAULT_DIFFICULTIES: readonly DifficultyDef[] = [{ id: "normal", label: "Normal" }];
+
 export interface GameDefinition {
   /** Title shown on the title screen. */
   readonly title: string;
@@ -54,6 +74,11 @@ export interface GameDefinition {
   readonly stages: readonly StageDef[];
   /** Playable characters. The slice uses the first as the default. */
   readonly characters: readonly CharacterDef[];
+  /** Selectable difficulties, ordered easiest-first; the chosen entry's INDEX is the
+   *  rank passed to the sim as `ctx.difficulty`. Display data only (the game's own
+   *  scripts scale on the rank). Optional — `DEFAULT_DIFFICULTIES` (a single "Normal")
+   *  applies when omitted, so a minimal game needn't author any. */
+  readonly difficulties?: readonly DifficultyDef[];
   /** Run rules — scoring economy, item tuning, continues. Construction input (not
    *  hashed); `DEFAULT_RUN_CONFIG` is a ready default a game can use or override. */
   readonly config: RunConfig;

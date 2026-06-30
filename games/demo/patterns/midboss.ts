@@ -7,6 +7,7 @@
 // Pure of (rng, tick, target) like every other script, so it replays and hot-reloads.
 
 import { type BossScript, type EmitterScript, accelerate, Shape } from "../../../src/api";
+import { scale } from "../difficulty";
 
 const ICE: readonly [number, number, number] = [0.6, 0.85, 1.0];
 const ROSE: readonly [number, number, number] = [1.0, 0.6, 0.7];
@@ -17,9 +18,10 @@ const GOLD: readonly [number, number, number] = [1.0, 0.85, 0.45];
 const approach: EmitterScript = function* (ctx) {
   let spin = 0;
   while (true) {
-    ctx.aimed({ count: 3, spread: 0.4, speed: 130, radius: 4, color: ICE, sprite: Shape.Rice });
+    // Difficulty thickens the approach fan and its backing ring per rank.
+    ctx.aimed({ count: scale(ctx.difficulty, 3, 1), spread: 0.4, speed: 130, radius: 4, color: ICE, sprite: Shape.Rice });
     ctx.ring({
-      count: 12,
+      count: scale(ctx.difficulty, 12, 2),
       speed: 60,
       angle: spin + ctx.rng.range(-0.1, 0.1),
       radius: 4,

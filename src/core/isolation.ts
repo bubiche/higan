@@ -95,6 +95,9 @@ const isoStage: StageScript = function* (ctx) {
 };
 
 const ISO_STAGE: StageDef = { id: "stream-isolation", script: isoStage, boss: isoBoss };
+// The isolation fixtures never read `ctx.difficulty` (they fire fixed counts), so the
+// rank is irrelevant to the property under test — pin it to a constant.
+const ISO_DIFFICULTY = 0;
 // A self-contained character so the test never depends on a game's shot tuning.
 const ISO_CHARACTER: CharacterDef = {
   id: "iso",
@@ -196,7 +199,7 @@ export function checkStreamIsolation(stageSeed: number, dt: number): IsolationRe
   const run = (
     input: InputFrame,
   ): { bossHash: number; enemyCounts: number[]; peakBullets: number; stayedAlive: boolean } => {
-    const sim = createStageSim(ISO_STAGE, stageSeed, ISO_CHARACTER, DEFAULT_RUN_CONFIG, dt);
+    const sim = createStageSim(ISO_STAGE, stageSeed, ISO_CHARACTER, ISO_DIFFICULTY, DEFAULT_RUN_CONFIG, dt);
     let acc = FNV_OFFSET;
     let peakBullets = 0;
     let stayedAlive = true;

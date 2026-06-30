@@ -13,6 +13,7 @@ import { PATTERN_TICKS } from "../../src/core/sim";
 import { mixSeed } from "../../src/core/prng";
 import { DT } from "../../src/core/playfield";
 import { demoGame } from "./game";
+import { NORMAL } from "./difficulty";
 import { showcaseStage } from "./patterns/showcase";
 import type { InputFrame } from "../../src/core/input";
 import type { GameDefinition, StageDef } from "../../src/api";
@@ -52,10 +53,12 @@ for (let i = 0; i < GUARD_TICKS; i++) {
   });
 }
 
-// Continuous determinism guard: same stage + seed + scripted input + character,
+// Continuous determinism guard: same stage + seed + scripted input + character + rank,
 // twice, must hash identically. The scripted input holds shoot, so player shots fire,
-// damage the boss, and fold into the trajectory hash.
-const det = assertDeterministic(stage, STAGE_SEED, scripted, DT, character, demoGame.config);
+// damage the boss, and fold into the trajectory hash. The guard runs at NORMAL — the
+// rank whose content evaluates to the baseline counts — so its hash is the unchanged
+// reference (a different rank shapes a different, equally-reproducible trajectory).
+const det = assertDeterministic(stage, STAGE_SEED, scripted, DT, character, NORMAL, demoGame.config);
 console.info(
   `[higan] determinism OK (stage ${stage.id}) — hash 0x${det.hashA
     .toString(16)
@@ -77,7 +80,7 @@ for (let i = 0; i < PATTERN_TICKS * 13; i++) {
     bomb: false,
   });
 }
-assertDeterministic(showcaseStageDef, STAGE_SEED, showcaseScript, DT, character, demoGame.config);
+assertDeterministic(showcaseStageDef, STAGE_SEED, showcaseScript, DT, character, NORMAL, demoGame.config);
 
 // Engine-seam self-test (DEV only — dead-stripped from the production bundle, where
 // a player can't introduce a stream-crossing bug): the boss's danmaku stream is
@@ -111,7 +114,7 @@ if (import.meta.hot) {
     wireContentHMR({
       app,
       getDef: (mod) => (mod as { demoGame: GameDefinition }).demoGame,
-      verify: (def) => assertDeterministic(def.stages[0]!, STAGE_SEED, scripted, DT, character, def.config),
+      verify: (def) => assertDeterministic(def.stages[0]!, STAGE_SEED, scripted, DT, character, NORMAL, def.config),
     }),
   );
 }

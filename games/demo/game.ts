@@ -36,6 +36,16 @@ export const demoGame = defineGame({
   seed: 0x1a9e,
   stages: [{ id: "stage-1", script: demoStage, boss: DEMO_BOSS }],
   characters: [{ id: "default", config: DEFAULT_PLAYER_CONFIG, shot: DEMO_SHOT }],
+  // Four difficulties, easiest-first — the chosen entry's INDEX is the rank the content
+  // scales on (see `./difficulty`: Easy 0 … Lunatic 3, with NORMAL the unscaled anchor).
+  // The labels/blurbs are this game's own; the engine has no opinion on them. A different
+  // game writes its own list and its own scaling, zero engine change.
+  difficulties: [
+    { id: "easy", label: "Easy", description: "Thinner waves — a gentle first read of the patterns." },
+    { id: "normal", label: "Normal", description: "The intended fight. Balanced density." },
+    { id: "hard", label: "Hard", description: "Denser fans and rings; tighter gaps to thread." },
+    { id: "lunatic", label: "Lunatic", description: "Maximum density. For players who have it memorised." },
+  ],
   // The reference game uses the engine's default run rules (scoring economy, item
   // tuning, continues). A real game spreads these and overrides what it wants.
   config: DEFAULT_RUN_CONFIG,

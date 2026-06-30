@@ -23,9 +23,12 @@ export interface DeterminismResult {
 
 /**
  * Run `inputs` through two fresh stage sims from `stageSeed` (driving the same
- * `stageDef` for the given `character`) and compare TRAJECTORY hashes. The stage +
- * character are passed in — not defaulted — so the guard exercises the real scene
- * the game runs, and the core stays content-agnostic.
+ * `stageDef` for the given `character` at a fixed `difficulty`) and compare
+ * TRAJECTORY hashes. The stage + character are passed in — not defaulted — so the
+ * guard exercises the real scene the game runs, and the core stays content-agnostic.
+ * The difficulty rank is held fixed for the pair: it shapes the trajectory (content
+ * branches on it) so a different rank yields a different — but equally reproducible —
+ * hash, which is the property this guard asserts at the rank it is given.
  *
  * The fingerprint folds every tick's state hash, not just the final frame. The boss
  * clears bullets between phases, so a final-frame-only hash would only cover the
@@ -39,10 +42,11 @@ export function checkDeterministic(
   inputs: readonly InputFrame[],
   dt: number,
   character: CharacterDef,
+  difficulty: number,
   runConfig: RunConfig,
 ): DeterminismResult {
   const run = (): number => {
-    const sim = createStageSim(stageDef, stageSeed, character, runConfig, dt);
+    const sim = createStageSim(stageDef, stageSeed, character, difficulty, runConfig, dt);
     let acc = 0x811c9dc5;
     for (let i = 0; i < inputs.length; i++) {
       sim.step(inputs[i]!);
@@ -62,9 +66,10 @@ export function assertDeterministic(
   inputs: readonly InputFrame[],
   dt: number,
   character: CharacterDef,
+  difficulty: number,
   runConfig: RunConfig,
 ): DeterminismResult {
-  const result = checkDeterministic(stageDef, stageSeed, inputs, dt, character, runConfig);
+  const result = checkDeterministic(stageDef, stageSeed, inputs, dt, character, difficulty, runConfig);
   if (!result.ok) {
     throw new Error(
       `Determinism check FAILED: hash ${result.hashA} !== ${result.hashB} ` +

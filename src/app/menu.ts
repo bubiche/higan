@@ -41,8 +41,10 @@ export interface MenuConfig {
   /** Heading shown above the list. */
   title?: string;
   items: MenuItem[];
-  /** Footer hint line. */
-  hint?: string;
+  /** Footer hint line. A function receives the highlighted item's index, so a menu can
+   *  show a per-item blurb that updates as the selection moves (the difficulty select
+   *  uses this for each rank's description). */
+  hint?: string | ((selectedIndex: number) => string);
   /** Cancel (Esc / X) — e.g. resume from pause, back out of options. */
   onCancel?: () => void;
 }
@@ -73,11 +75,12 @@ export function createMenu(parent: HTMLElement, config: MenuConfig): Menu {
         return `<div class="menu-item${sel ? " sel" : ""}"><span class="menu-label">${marker}${it.label}</span>${value}</div>`;
       })
       .join("");
+    const hint = typeof config.hint === "function" ? config.hint(selected) : config.hint;
     root.innerHTML = `
       <div class="menu-card">
         ${config.title ? `<h1>${config.title}</h1>` : ""}
         <div class="menu-list">${rows}</div>
-        ${config.hint ? `<p class="menu-hint">${config.hint}</p>` : ""}
+        ${hint ? `<p class="menu-hint">${hint}</p>` : ""}
       </div>`;
   };
   render();

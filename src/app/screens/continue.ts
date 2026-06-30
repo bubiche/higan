@@ -18,17 +18,19 @@ import { createResultsScreen } from "./results";
 
 /** `continuesUsed` is how many continues this run has already spent (0 on the first
  *  game-over). Threaded in by the in-game screen, which carries it across the rebuild.
- *  The per-run continue allowance is a game-level run rule (`config.continues`). */
-export function createContinueScreen(shell: Shell, continuesUsed = 0): Screen {
+ *  The per-run continue allowance is a game-level run rule (`config.continues`).
+ *  `difficulty` is the run's chosen rank, carried through unchanged so the rebuilt run
+ *  stays at the same difficulty. */
+export function createContinueScreen(shell: Shell, continuesUsed = 0, difficulty = 0): Screen {
   const { overlay, input, router } = shell;
   const remaining = shell.def.config.continues - continuesUsed;
   let menu: Menu;
 
   const doContinue = (): void => {
     router.pop(); // remove this prompt…
-    // …and rebuild the run. The fresh sim resets score + restores lives/bombs; the
-    // incremented count means the next game-over offers one fewer continue.
-    router.replace(createInGameScreen(shell, continuesUsed + 1));
+    // …and rebuild the run at the same difficulty. The fresh sim resets score + restores
+    // lives/bombs; the incremented count means the next game-over offers one fewer continue.
+    router.replace(createInGameScreen(shell, continuesUsed + 1, difficulty));
   };
   const giveUp = (): void => {
     router.pop();
