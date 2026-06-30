@@ -18,6 +18,7 @@
 // emitter, on the enemy stream (Hard Rule 2).
 
 import type { ShotSystem } from "./shot";
+import type { ItemDropTable } from "./item";
 
 /** A single enemy. Mutated in place inside its pool slot. */
 export interface Enemy {
@@ -40,6 +41,10 @@ export interface Enemy {
   r: number;
   g: number;
   b: number;
+  /** Items dropped when SHOT DOWN. Construction content, like sprite/colour — a ref
+   *  to the authored table, NOT evolving state, so it is NOT hashed; only the items
+   *  it spawns on death are. `undefined` = drops nothing. */
+  drops: ItemDropTable | undefined;
 }
 
 /** Spawn parameters — every field explicit; defaulting happens at the API layer. */
@@ -52,6 +57,7 @@ export interface EnemySpawn {
   r: number;
   g: number;
   b: number;
+  drops?: ItemDropTable;
 }
 
 export interface EnemySystem {
@@ -72,7 +78,7 @@ export interface EnemySystem {
 export function createEnemySystem(capacity = 64): EnemySystem {
   const pool: Enemy[] = [];
   for (let i = 0; i < capacity; i++) {
-    pool.push({ alive: false, x: 0, y: 0, hp: 0, hpMax: 0, radius: 0, age: 0, sprite: 0, r: 0, g: 0, b: 0 });
+    pool.push({ alive: false, x: 0, y: 0, hp: 0, hpMax: 0, radius: 0, age: 0, sprite: 0, r: 0, g: 0, b: 0, drops: undefined });
   }
   let liveCount = 0;
 
@@ -95,6 +101,7 @@ export function createEnemySystem(capacity = 64): EnemySystem {
         e.r = o.r;
         e.g = o.g;
         e.b = o.b;
+        e.drops = o.drops;
         e.age = 0;
         liveCount++;
         return i;

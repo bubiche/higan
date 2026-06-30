@@ -33,6 +33,8 @@ export type { BossScript, BossContext, PhaseSpec, PhaseResult } from "./boss";
 
 export type { StageScript, StageContext, EnemySpec } from "./stage";
 
+export { ItemType, type ItemDropTable } from "../touhou/item";
+
 export { defineGame, type GameDefinition, type StageDef, type CharacterDef } from "./game";
 
 export { DEFAULT_SHOT_CONFIG, type ShotConfig } from "../touhou/shot";

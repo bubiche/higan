@@ -58,6 +58,8 @@ export function createHud(panel: HTMLElement): Hud {
       lines.push("── player ──");
       lines.push(`lives   ${iconRow(player.lives, "✦")}`);
       lines.push(`bombs   ${iconRow(player.bombs, "✸")}`);
+      lines.push(`power   ${player.power}`);
+      lines.push(`points  ${player.pointItemsCollected}`);
       lines.push(`graze   ${player.graze}`);
       const stateLabel = STATE_LABELS[player.state] ?? "?";
       lines.push(`state   ${stateLabel}${player.invulnTicks > 0 ? ` (inv ${player.invulnTicks})` : ""}`);
@@ -87,6 +89,7 @@ export function createHud(panel: HTMLElement): Hud {
       lines.push(`bullets ${sim.system.liveCount}`);
       lines.push(`shots   ${sim.shots.liveCount}`);
       lines.push(`enemies ${sim.enemies.liveCount}`);
+      lines.push(`items   ${sim.items.liveCount}`);
       lines.push(`beams   ${frame.beams}`);
       lines.push(`drawn   ${frame.drawn}`);
       lines.push(`hash    0x${sim.hash().toString(16).padStart(8, "0")}`);

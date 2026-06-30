@@ -79,8 +79,13 @@ export interface Player {
   /** Graze count; incremented once per bullet lifetime (see collision). */
   graze: number;
   /** Shot power level — scales the player-shot stream count (see touhou/shot.ts).
-   *  Starts at 0; items feed it later. (Graduates into run-state when scoring lands.) */
+   *  Starts at 0; Power / FullPower items feed it. (Graduates into run-state when
+   *  scoring lands.) */
   power: number;
+  /** Point-items collected this run (raw count — folded into the hash). The scoring
+   *  economy multiplies this by PIV into score later; for now it just accumulates so
+   *  point items (and Power overflow past max) have a real, hashed effect. */
+  pointItemsCollected: number;
   /** >0 = invulnerable (i-frames after respawn/bomb); counts down. */
   invulnTicks: number;
   /** >0 = deathbomb window open; counts down. */
@@ -103,6 +108,7 @@ export function createPlayer(cfg: PlayerConfig, x: number, y: number): Player {
     bombs: cfg.bombs,
     graze: 0,
     power: 0,
+    pointItemsCollected: 0,
     invulnTicks: 0,
     deathbombTicks: 0,
     prevBomb: false,

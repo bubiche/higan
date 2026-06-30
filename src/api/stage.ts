@@ -18,6 +18,7 @@
 import type { EmitterScript, RunningEmitter, Vec2 } from "./emitter";
 import type { BossScript } from "./boss";
 import type { Rng } from "../core/prng";
+import type { ItemDropTable } from "../touhou/item";
 
 /**
  * An enemy's authored stats — the hittable-target content (like a character's
@@ -33,6 +34,9 @@ export interface EnemySpec {
   readonly sprite: number;
   /** Linear RGB tint, 0..1 (render-only). */
   readonly color: readonly [number, number, number];
+  /** Items dropped when the enemy is SHOT DOWN (not when it flies off or culls).
+   *  Just counts per type; the per-type look is engine-owned (genre convention). */
+  readonly drops?: ItemDropTable;
 }
 
 export interface StageContext {

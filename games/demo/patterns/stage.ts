@@ -72,7 +72,13 @@ const turret: EmitterScript = function* (ctx) {
 function* popcornLine(ctx: StageContext, n: number, gap: number): Generator<number, void, unknown> {
   for (let i = 0; i < n; i++) {
     const x = (PLAYFIELD_W * (i + 1)) / (n + 1);
-    ctx.spawnEnemy(popcorn, x, -12, { hp: 60, radius: 14, sprite: Shape.BigOrb, color: AMBER });
+    ctx.spawnEnemy(popcorn, x, -12, {
+      hp: 60,
+      radius: 14,
+      sprite: Shape.BigOrb,
+      color: AMBER,
+      drops: { power: 1, point: 1 },
+    });
     yield gap;
   }
 }
@@ -84,8 +90,20 @@ export const demoStage: StageScript = function* (ctx) {
   // ── Opening waves ──
   yield* popcornLine(ctx, 5, 40);
   yield 70;
-  ctx.spawnEnemy(sweeper(1), -12, 90, { hp: 90, radius: 14, sprite: Shape.BigOrb, color: TEAL });
-  ctx.spawnEnemy(sweeper(-1), PLAYFIELD_W + 12, 140, { hp: 90, radius: 14, sprite: Shape.BigOrb, color: TEAL });
+  ctx.spawnEnemy(sweeper(1), -12, 90, {
+    hp: 90,
+    radius: 14,
+    sprite: Shape.BigOrb,
+    color: TEAL,
+    drops: { power: 2, point: 2 },
+  });
+  ctx.spawnEnemy(sweeper(-1), PLAYFIELD_W + 12, 140, {
+    hp: 90,
+    radius: 14,
+    sprite: Shape.BigOrb,
+    color: TEAL,
+    drops: { power: 2, point: 2 },
+  });
   yield 170;
   yield* popcornLine(ctx, 4, 36);
   yield 130;
@@ -95,8 +113,22 @@ export const demoStage: StageScript = function* (ctx) {
   yield 90;
 
   // ── Post-midboss waves ──
-  ctx.spawnEnemy(turret, PLAYFIELD_W * 0.3, -12, { hp: 150, radius: 16, sprite: Shape.BigOrb, color: ROSE });
-  ctx.spawnEnemy(turret, PLAYFIELD_W * 0.7, -12, { hp: 150, radius: 16, sprite: Shape.BigOrb, color: ROSE });
+  // The tanky turrets are the stage's item anchors — one yields a life, the other a
+  // full-power, so a full clear shows every item type.
+  ctx.spawnEnemy(turret, PLAYFIELD_W * 0.3, -12, {
+    hp: 150,
+    radius: 16,
+    sprite: Shape.BigOrb,
+    color: ROSE,
+    drops: { power: 3, point: 4, bomb: 1, life: 1 },
+  });
+  ctx.spawnEnemy(turret, PLAYFIELD_W * 0.7, -12, {
+    hp: 150,
+    radius: 16,
+    sprite: Shape.BigOrb,
+    color: ROSE,
+    drops: { power: 3, point: 4, fullPower: 1 },
+  });
   yield 210;
   yield* popcornLine(ctx, 6, 30);
   yield 150;

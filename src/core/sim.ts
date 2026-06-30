@@ -27,7 +27,14 @@ import { Rng, mixSeed } from "./prng";
 import { hashFloat32Arrays } from "./hash";
 import { createBulletSystem, type BulletSystem } from "../bullets/system";
 import { createLaserSystem, type LaserSystem } from "../touhou/laser";
-import { createEnemySystem, stepEnemyShotCollision, type EnemySystem } from "../touhou/enemy";
+import { createEnemySystem, stepEnemyShotCollision, type EnemySystem, type Enemy } from "../touhou/enemy";
+import {
+  createItemSystem,
+  stepItemCollection,
+  ITEM_VISUAL,
+  ItemType,
+  type ItemSystem,
+} from "../touhou/item";
 import {
   startEmitter,
   stepEmitter,
@@ -66,6 +73,9 @@ export const LASER_CAPACITY = 64;
 export const SHOT_CAPACITY = 256;
 /** Enemy-pool capacity (§f ~tens; the renderer + hash scratch size to match). */
 export const ENEMY_CAPACITY = 64;
+/** Item-pool capacity (the renderer + hash scratch size to match). NOTE: a future
+ *  bullet-cancel shower can spawn far more — bump this (or aggregate value) there. */
+export const ITEM_CAPACITY = 256;
 const CULL_MARGIN = 16;
 /** Off-field margin past which an enemy is culled. Generous — enemies enter from
  *  above the field, so this must clear their spawn point (the tight bullet
@@ -74,11 +84,18 @@ const ENEMY_CULL_MARGIN = 96;
 /** Boss collision radius — the disc player shots damage. A constant for the demo
  *  (the boss origin is static); a per-boss hitbox/position is a content seam later. */
 const BOSS_HIT_RADIUS = 22;
+/** Item-drop spawn kinematics — the upward "pop" speed + its item-stream scatter at
+ *  spawn; the in-flight fall/magnet/collect live in touhou/item.ts. (LITMUS: tuning,
+ *  promote to config alongside item.ts's constants at the slice gate.) */
+const ITEM_POP_VY = 90;
+const ITEM_POP_SCATTER_X = 35;
+const ITEM_POP_SCATTER_VY = 25;
 
 /** RNG-stream ids. Each stream derives an independent generator from the stage seed
  *  (`mixSeed(stageSeed, id)`). The boss stream is protected from the enemy stream's
- *  play-dependent churn (see the module header). The item stream joins at M6#3. */
-const STREAM = { Boss: 0, Enemy: 1 } as const;
+ *  play-dependent churn (see the module header); items get their own so drop-scatter
+ *  randomness never reshapes danmaku. */
+const STREAM = { Boss: 0, Enemy: 1, Item: 2 } as const;
 
 /** Ticks the demo's showcase stage runs each pattern (referenced by the demo). */
 export const PATTERN_TICKS = 150;
@@ -114,6 +131,8 @@ export interface Simulation {
   readonly shots: ShotSystem;
   /** The enemy pool (hittable foes that fire their own danmaku) the renderer draws. */
   readonly enemies: EnemySystem;
+  /** The item pool (pickups enemies drop) the renderer draws. */
+  readonly items: ItemSystem;
   /** The player struct (position + game state). Read-only to consumers — only the
    *  sim mutates it, so the HUD/renderer can never become a second source of truth. */
   readonly player: Readonly<Player>;
@@ -141,10 +160,18 @@ export function createStageSim(
 ): Simulation {
   const config = character.config;
   const shot = character.shot ?? DEFAULT_SHOT_CONFIG;
-  // Per-source RNG streams. The boss stream is protected; the enemy stream drives
-  // the stage script + (from M6#2b) enemy danmaku, and is play-dependent.
+  // Power ceiling: the level past which more power buys no extra shot streams. Derived
+  // from the shot config (it IS where streams cap), so it needs no separate knob — a
+  // FullPower item jumps here and a Power item past it converts to a point. (LITMUS:
+  // if power ever gains a second consumer — e.g. bomb scaling — promote this to an
+  // independent config field rather than a shot-derived value.)
+  const MAX_POWER = Math.max(0, (shot.maxStreams - shot.baseStreams) * shot.powerPerStream);
+  // Per-source RNG streams. The boss stream is protected; the enemy stream drives the
+  // stage script + enemy danmaku (play-dependent); the item stream feeds drop-scatter
+  // so item randomness never perturbs danmaku.
   const rngBoss = new Rng(mixSeed(stageSeed, STREAM.Boss));
   const rngEnemy = new Rng(mixSeed(stageSeed, STREAM.Enemy));
+  const rngItem = new Rng(mixSeed(stageSeed, STREAM.Item));
 
   const system = createBulletSystem(
     { width: PLAYFIELD_W, height: PLAYFIELD_H, margin: CULL_MARGIN },
@@ -156,6 +183,10 @@ export function createStageSim(
     SHOT_CAPACITY,
   );
   const enemies = createEnemySystem(ENEMY_CAPACITY);
+  const items = createItemSystem(
+    { width: PLAYFIELD_W, height: PLAYFIELD_H, margin: CULL_MARGIN },
+    ITEM_CAPACITY,
+  );
 
   // Spawn / respawn position — the bottom-centre start. A constant (not hashed),
   // passed to the lifecycle step so a respawn returns the player here.
@@ -283,11 +314,45 @@ export function createStageSim(
       r: spec.color[0],
       g: spec.color[1],
       b: spec.color[2],
+      drops: spec.drops,
     });
     if (slot < 0) return;
     const em = startEmitter(script, ex, ey, tick + 1, deps, rngEnemy, 0);
     running.push(em);
     bound.push({ slot, em });
+  };
+
+  // Spawn one item type's drops, popping up from (ex, ey) with an item-stream scatter
+  // then falling (item.ts owns the fall/magnet/collect). The per-type look is engine-
+  // owned (ITEM_VISUAL); content chose only the counts.
+  const emitDrop = (type: ItemType, count: number | undefined, ex: number, ey: number): void => {
+    const n = count ?? 0;
+    const vis = ITEM_VISUAL[type];
+    for (let i = 0; i < n; i++) {
+      items.spawn({
+        type,
+        x: ex,
+        y: ey,
+        vx: rngItem.range(-ITEM_POP_SCATTER_X, ITEM_POP_SCATTER_X),
+        vy: -ITEM_POP_VY + rngItem.range(-ITEM_POP_SCATTER_VY, ITEM_POP_SCATTER_VY),
+        sprite: vis.sprite,
+        r: vis.color[0],
+        g: vis.color[1],
+        b: vis.color[2],
+      });
+    }
+  };
+  // An enemy's full death-drop. Called from the death seam ONLY on a shot-kill (an
+  // enemy that flies off or culls drops nothing), in a fixed type order so the item-
+  // stream draws are deterministic.
+  const spawnDrops = (e: Enemy): void => {
+    const d = e.drops;
+    if (!d) return;
+    emitDrop(ItemType.Power, d.power, e.x, e.y);
+    emitDrop(ItemType.Point, d.point, e.x, e.y);
+    emitDrop(ItemType.Life, d.life, e.x, e.y);
+    emitDrop(ItemType.Bomb, d.bomb, e.x, e.y);
+    emitDrop(ItemType.FullPower, d.fullPower, e.x, e.y);
   };
 
   const stageDeps: StageDeps = {
@@ -357,6 +422,16 @@ export function createStageSim(
   const enhp = new Float32Array(ENEMY_CAPACITY);
   const enrad = new Float32Array(ENEMY_CAPACITY);
   const enage = new Float32Array(ENEMY_CAPACITY);
+  // Item scratch (live items, packed in pool order — deterministic). The evolving
+  // motion + lifecycle (position, velocity, state, age) + the type (it decides the
+  // collection effect); sprite/colour are render-only, left out as enemies' are.
+  const itx = new Float32Array(ITEM_CAPACITY);
+  const ity = new Float32Array(ITEM_CAPACITY);
+  const itvx = new Float32Array(ITEM_CAPACITY);
+  const itvy = new Float32Array(ITEM_CAPACITY);
+  const itstate = new Float32Array(ITEM_CAPACITY);
+  const itage = new Float32Array(ITEM_CAPACITY);
+  const ittype = new Float32Array(ITEM_CAPACITY);
   // Running-emitter scratch: (resumeTick, group) per live emitter, in array order
   // (deterministic). Directly fingerprints the scheduler — the central machinery —
   // beyond what the bullets those emitters spawn already imply. NOTE: this caps only
@@ -365,18 +440,19 @@ export function createStageSim(
   const EMITTER_SCRATCH = 64;
   const semitRT = new Float32Array(EMITTER_SCRATCH);
   const semitG = new Float32Array(EMITTER_SCRATCH);
-  // Per-stream RNG state (boss x,y,z,w then enemy x,y,z,w). Stored as u32 and hashed
-  // via a Float32 VIEW over the same buffer, so the FNV byte-hash folds the exact
-  // 32-bit words losslessly — a direct, early tripwire for a stream-ordering desync
-  // (e.g. the boss accidentally drawing from the wrong stream), beyond the bullets
-  // those draws produce. (Lossless matters less here than for score — rng divergence
-  // is chaotic, not incremental — but it costs nothing to do right.)
-  const rngStateU32 = new Uint32Array(8);
+  // Per-stream RNG state (boss x,y,z,w, then enemy, then item). Stored as u32 and
+  // hashed via a Float32 VIEW over the same buffer, so the FNV byte-hash folds the
+  // exact 32-bit words losslessly — a direct, early tripwire for a stream-ordering
+  // desync (e.g. the boss accidentally drawing from the wrong stream), beyond the
+  // bullets those draws produce. (Lossless matters less here than for score — rng
+  // divergence is chaotic, not incremental — but it costs nothing to do right.)
+  const rngStateU32 = new Uint32Array(12);
   const rngStateView = new Float32Array(rngStateU32.buffer);
   // Scalar block: sim/scene/laser state (0-7), the full player struct (8-17),
   // boss/spell state (18-21), the stage-complete flag (22), the player-shot live
-  // count (23), the enemy live count (24).
-  const scalars = new Float32Array(25);
+  // count (23), the enemy live count (24), the item live count (25), point-items
+  // collected (26).
+  const scalars = new Float32Array(27);
 
   const step = (input: InputFrame): void => {
     // 1. Player movement from input (focus-aware speed, clamped to the field).
@@ -442,8 +518,10 @@ export function createStageSim(
     //     (shot down), coroutine-return (em.done — flew its course), or leaving the
     //     field (generous margin). Free the slot AND end its emitter together so they
     //     can never desync. One fixed-order sweep, then compact `bound` + `running`.
-    //     In-flight bullets the enemy fired persist (genre-correct). No §h event list
-    //     yet (no consumer until scoring / audio).
+    //     In-flight bullets the enemy fired persist (genre-correct). Items drop ONLY on
+    //     a shot-kill (hp<=0) — a fly-off / cull yields nothing, the Touhou rule — and
+    //     the drop scatter rides the dedicated item stream. No §h event list yet (no
+    //     consumer until scoring / audio).
     let torn = false;
     for (let i = 0; i < bound.length; i++) {
       const { slot, em } = bound[i]!;
@@ -453,7 +531,9 @@ export function createStageSim(
         e.x > PLAYFIELD_W + ENEMY_CULL_MARGIN ||
         e.y < -ENEMY_CULL_MARGIN ||
         e.y > PLAYFIELD_H + ENEMY_CULL_MARGIN;
-      if (e.hp <= 0 || em.done || off) {
+      const killed = e.hp <= 0;
+      if (killed || em.done || off) {
+        if (killed) spawnDrops(e);
         enemies.despawn(slot);
         em.done = true;
         torn = true;
@@ -475,7 +555,17 @@ export function createStageSim(
     if (clearField) {
       system.clear();
       lasers.clear();
+      items.attractAll(); // a bomb/deathbomb vacuums items toward the player
     }
+
+    // 8. Items: advance pop/gravity/magnet/home (cull off the bottom), then collect any
+    //    overlapping the player. End-of-tick so they read the FINAL player position
+    //    (post-movement, post-respawn) and a 1up can't undo a same-tick death (death
+    //    resolves in step 7 first). Full power, or the player above the PoC line,
+    //    auto-attracts the whole field. ZERO RNG (the scatter was drawn at drop time).
+    const fullPower = MAX_POWER > 0 && player.power >= MAX_POWER;
+    items.update(dt, player.x, player.y, fullPower);
+    stepItemCollection(items, player, MAX_POWER);
 
     tick++;
   };
@@ -545,6 +635,21 @@ export function createStageSim(
       enage[q] = e.age;
       q++;
     }
+    // Compact live items in pool order (same rationale as bullet slots).
+    const itp = items.items;
+    let t = 0;
+    for (let i = 0; i < itp.length; i++) {
+      const it = itp[i];
+      if (!it.alive) continue;
+      itx[t] = it.x;
+      ity[t] = it.y;
+      itvx[t] = it.vx;
+      itvy[t] = it.vy;
+      itstate[t] = it.state;
+      itage[t] = it.age;
+      ittype[t] = it.type;
+      t++;
+    }
     // Pack live emitters' schedule state (array order — deterministic).
     let e = 0;
     for (let i = 0; i < running.length && e < EMITTER_SCRATCH; i++) {
@@ -555,6 +660,7 @@ export function createStageSim(
     // Fold each stream's 4-word state (boss then enemy) — the stream-desync tripwire.
     const bs = rngBoss.snapshot();
     const es = rngEnemy.snapshot();
+    const its = rngItem.snapshot();
     rngStateU32[0] = bs[0];
     rngStateU32[1] = bs[1];
     rngStateU32[2] = bs[2];
@@ -563,6 +669,10 @@ export function createStageSim(
     rngStateU32[5] = es[1];
     rngStateU32[6] = es[2];
     rngStateU32[7] = es[3];
+    rngStateU32[8] = its[0];
+    rngStateU32[9] = its[1];
+    rngStateU32[10] = its[2];
+    rngStateU32[11] = its[3];
     scalars[0] = tick;
     scalars[1] = system.liveCount;
     scalars[2] = player.x;
@@ -588,6 +698,8 @@ export function createStageSim(
     scalars[22] = stageRoot.done ? 1 : 0;
     scalars[23] = shots.liveCount;
     scalars[24] = enemies.liveCount;
+    scalars[25] = items.liveCount;
+    scalars[26] = player.pointItemsCollected;
     return hashFloat32Arrays([
       sx.subarray(0, n),
       sy.subarray(0, n),
@@ -619,6 +731,13 @@ export function createStageSim(
       enhp.subarray(0, q),
       enrad.subarray(0, q),
       enage.subarray(0, q),
+      itx.subarray(0, t),
+      ity.subarray(0, t),
+      itvx.subarray(0, t),
+      itvy.subarray(0, t),
+      itstate.subarray(0, t),
+      itage.subarray(0, t),
+      ittype.subarray(0, t),
       semitRT.subarray(0, e),
       semitG.subarray(0, e),
       rngStateView,
@@ -634,6 +753,7 @@ export function createStageSim(
     lasers,
     shots,
     enemies,
+    items,
     player,
     get patternName() {
       if (bossRoot) return bossState.active ? bossState.name : "—";
