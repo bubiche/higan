@@ -5,9 +5,10 @@
 // leak and double-fire across the title→in-game→results loop). It serves two
 // distinct needs from the same key state:
 //
-//   - `sample(tick)` → an InputFrame of HELD keys for the simulation. This mapping
-//     is the producer side of the determinism seam and is byte-for-byte identical
-//     to what the engine has always sampled, so replays are unaffected.
+//   - `sample(tick)` → an InputFrame of HELD keys for the simulation, resolved through
+//     the live key bindings. This is the producer side of the determinism seam:
+//     replays store the produced InputFrame, never the key code, so remapping which
+//     physical key means "shoot" can never change a recorded run.
 //   - `takeEvents()` → the queue of discrete key PRESSES (edges, auto-repeat
 //     filtered out) since the last call, for menu confirm and the frame-step
 //     debugger keys. Reading drains the queue.
@@ -16,9 +17,10 @@
 // lets those frames be recorded and replayed.
 
 import type { InputFrame, InputSource } from "../core/input";
+import type { KeyBindings } from "./bindings";
 
 export interface ShellInput extends InputSource {
-  /** Held-key snapshot for the sim. Byte-identical to the engine's original mapping. */
+  /** Held-key snapshot for the sim, resolved through the current key bindings. */
   sample(tick: number): InputFrame;
   /** Key-press codes (edges) since the last call, then clears them. */
   takeEvents(): readonly string[];
@@ -33,7 +35,12 @@ export interface ShellInput extends InputSource {
 // browser side effect, never the sampled InputFrame.
 const SWALLOW = new Set(["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 
-export function createShellInput(): ShellInput {
+/**
+ * @param getBindings reads the live action→code map each tick. Passing a getter (not a
+ *   snapshot) means a rebind or reset-to-defaults takes effect immediately, even when
+ *   the bindings object is replaced wholesale.
+ */
+export function createShellInput(getBindings: () => KeyBindings): ShellInput {
   const down = new Set<string>();
   let events: string[] = [];
 
@@ -50,18 +57,19 @@ export function createShellInput(): ShellInput {
 
   return {
     sample(): InputFrame {
+      const b = getBindings();
       let dx = 0;
       let dy = 0;
-      if (down.has("ArrowLeft") || down.has("KeyA")) dx -= 1;
-      if (down.has("ArrowRight") || down.has("KeyD")) dx += 1;
-      if (down.has("ArrowUp") || down.has("KeyW")) dy -= 1;
-      if (down.has("ArrowDown") || down.has("KeyS")) dy += 1;
+      if (down.has(b.left)) dx -= 1;
+      if (down.has(b.right)) dx += 1;
+      if (down.has(b.up)) dy -= 1;
+      if (down.has(b.down)) dy += 1;
       return {
         dx,
         dy,
-        shoot: down.has("KeyZ"),
-        focus: down.has("ShiftLeft") || down.has("ShiftRight"),
-        bomb: down.has("KeyX"),
+        shoot: down.has(b.shoot),
+        focus: down.has(b.focus),
+        bomb: down.has(b.bomb),
       };
     },
     takeEvents(): readonly string[] {

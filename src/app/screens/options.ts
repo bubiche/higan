@@ -13,6 +13,7 @@
 import type { Screen, Shell } from "../screen";
 import { createMenu, type Menu } from "../menu";
 import { clampDisplayScale } from "../save";
+import { createRebindScreen } from "./rebind";
 
 const VOL_STEP = 0.1;
 const SCALE_STEP = 0.1;
@@ -64,6 +65,7 @@ export function createOptionsScreen(shell: Shell): Screen {
             left: () => setScale(-SCALE_STEP),
             right: () => setScale(SCALE_STEP),
           },
+          { kind: "action", label: "Key config", onConfirm: () => shell.router.push(createRebindScreen(shell)) },
           { kind: "action", label: "Back", onConfirm: back },
         ],
       });

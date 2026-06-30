@@ -63,7 +63,7 @@ export function runGame(def: GameDefinition): AppHandle {
   resize();
   window.addEventListener("resize", resize);
 
-  const input = createShellInput();
+  const input = createShellInput(() => save.settings.keybinds);
   const bullets = createBulletRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, SIM_CAPACITY);
   const lasers = createLaserRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, LASER_CAPACITY);
 

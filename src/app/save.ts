@@ -6,6 +6,8 @@
 // or future-versioned document never crashes — it falls back to (or merges over)
 // the defaults, so a bad write can't brick the game.
 
+import { DEFAULT_BINDINGS, sanitizeBindings, type KeyBindings } from "./bindings";
+
 const SAVE_KEY = "higan.save.v1";
 const SAVE_VERSION = 1;
 
@@ -24,10 +26,10 @@ export interface SaveSettings {
   bgmVolume: number;
   /** SFX volume, 0..1. Same: persisted now, consumed later. */
   sfxVolume: number;
-  /** Action → KeyboardEvent.code. The forward slot for key rebinding; the keyboard
-   *  source currently uses fixed bindings, so this is schema-only for now (here so a
-   *  later rebind UI needs no save-version bump). */
-  keybinds: Record<string, string>;
+  /** Action → KeyboardEvent.code, edited by the rebind screen and read live by the
+   *  keyboard source. Presentation/meta like the rest — replays store the produced
+   *  InputFrame, never key codes, so this never enters the sim or its hash. */
+  keybinds: KeyBindings;
   /** Playfield CSS scale multiplier — applied live by the shell. */
   displayScale: number;
 }
@@ -53,15 +55,7 @@ export const DEFAULT_SAVE: SaveData = {
   settings: {
     bgmVolume: 0.8,
     sfxVolume: 0.8,
-    keybinds: {
-      up: "ArrowUp",
-      down: "ArrowDown",
-      left: "ArrowLeft",
-      right: "ArrowRight",
-      shoot: "KeyZ",
-      focus: "ShiftLeft",
-      bomb: "KeyX",
-    },
+    keybinds: { ...DEFAULT_BINDINGS },
     displayScale: DEFAULT_DISPLAY_SCALE,
   },
   unlocks: { extra: false, practiceStages: [], musicRoom: [], spellHistory: {} },
@@ -100,7 +94,13 @@ export function loadSave(): SaveData {
     return {
       version: SAVE_VERSION,
       hiScores: { ...base.hiScores, ...(parsed.hiScores ?? {}) },
-      settings: { ...base.settings, ...(parsed.settings ?? {}) },
+      settings: {
+        ...base.settings,
+        ...(parsed.settings ?? {}),
+        // keybinds are now load-bearing (the keyboard reads them), so merge per-action
+        // rather than letting the shallow spread swap in a partial/corrupt object.
+        keybinds: sanitizeBindings(parsed.settings?.keybinds),
+      },
       unlocks: { ...base.unlocks, ...(parsed.unlocks ?? {}) },
     };
   } catch {
