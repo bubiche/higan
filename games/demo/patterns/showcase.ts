@@ -13,9 +13,11 @@ import {
   type ScenePattern,
   type StageScript,
   accelerate,
+  curve,
   delay,
   home,
   ramp,
+  staged,
   wave,
   Shape,
 } from "../../../src/api";
@@ -156,6 +158,32 @@ const wavePattern: EmitterScript = function* (ctx) {
   }
 };
 
+/** Drift → freeze → re-aim → snap: a staged-combinator ring. Each bullet launches
+ *  curving outward, freezes in place, then re-aims at the player and accelerates — one
+ *  bullet running a whole timeline of moves (see `staged`). Exported so the DEV pattern
+ *  preview (`?preview=staged`) can render it solo — the showcase guard stage overflows
+ *  the store and never draws. */
+export const stagedPattern: EmitterScript = function* (ctx) {
+  let phase = 0;
+  while (true) {
+    ctx.ring({
+      count: 20,
+      speed: 90,
+      angle: phase,
+      radius: 5,
+      color: GREEN,
+      sprite: Shape.BigOrb,
+      behavior: staged([
+        { ticks: 50, motion: curve(1.6) }, // drift outward, curving
+        { ticks: 28, set: { speed: 0 } }, // freeze in place
+        { set: { aimPlayer: true, speed: 230 }, motion: ramp(120, 0) }, // re-aim + accelerate, forever
+      ]),
+    });
+    phase += 0.27;
+    yield 34;
+  }
+};
+
 /** A sweeping rake of straight beams — telegraph, fire, sweep — with aimed
  *  bullets filling the gaps while the next volley warns up. */
 const laserPattern: EmitterScript = function* (ctx) {
@@ -229,7 +257,7 @@ const flutterPattern: EmitterScript = function* (ctx) {
 };
 
 /** A guard-only scene that runs every showcase pattern at once, so the continuous
- *  determinism guard covers the `wave`/`delay`/`ramp`-speed-change behavior branches
+ *  determinism guard covers the `wave`/`delay`/`ramp`/`staged` behavior branches
  *  the boss doesn't exercise. NOT a playable scene — the showcase emitters overflow
  *  the store when run together (deterministically), which is fine for branch coverage
  *  but would not read on screen. Lives here (beside the patterns it runs) so the
@@ -249,6 +277,7 @@ export const SHOWCASE: readonly ScenePattern[] = [
   { name: "ramp", script: rampPattern },
   { name: "delay", script: delayPattern },
   { name: "wave", script: wavePattern },
+  { name: "staged", script: stagedPattern },
   { name: "laser", script: laserPattern },
   { name: "shapes", script: shapesPattern },
   { name: "flutter", script: flutterPattern },

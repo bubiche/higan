@@ -11,10 +11,10 @@ import { assertDeterministic } from "../../src/core/determinism";
 import { assertStreamIsolation } from "../../src/core/isolation";
 import { PATTERN_TICKS } from "../../src/core/sim";
 import { mixSeed } from "../../src/core/prng";
-import { DT } from "../../src/core/playfield";
+import { DT, PLAYFIELD_H } from "../../src/core/playfield";
 import { demoGame } from "./game";
 import { NORMAL } from "./difficulty";
-import { showcaseStage } from "./patterns/showcase";
+import { showcaseStage, stagedPattern } from "./patterns/showcase";
 import type { InputFrame } from "../../src/core/input";
 import type { GameDefinition, StageDef } from "../../src/api";
 
@@ -97,7 +97,29 @@ if (import.meta.env.DEV) {
   );
 }
 
-const app = runGame(demoGame);
+// DEV-only pattern preview. The showcase guard stage overflows the store by design and
+// never renders, so normal play offers no way to *see* an individual pattern. With
+// `?preview=staged` in the URL, run a store-safe solo scene of the staged combinator
+// (fired from the upper field so the full ring reads) — the live eyeball for #7. Throwaway
+// and DEV-gated (dead-stripped from production); it touches neither the playable stage nor
+// any determinism baseline.
+const previewMode =
+  import.meta.env.DEV && new URLSearchParams(location.search).get("preview") === "staged";
+const previewGame: GameDefinition = {
+  ...demoGame,
+  stages: [
+    {
+      id: "staged-preview",
+      script: function* (ctx) {
+        ctx.y = PLAYFIELD_H * 0.28; // fire from upper-center, not the very top edge
+        ctx.sub(stagedPattern);
+        yield 1_000_000;
+      },
+    },
+  ],
+};
+
+const app = runGame(previewMode ? previewGame : demoGame);
 
 // Hot-reload: accept the GAME ROOT (`./game`), not the individual pattern modules.
 // Every piece of stage content — the stage/wave script, the boss, the midboss, the
@@ -108,7 +130,7 @@ const app = runGame(demoGame);
 // why). `wireContentHMR` packages the swap+resync; `verify` keeps the determinism
 // tripwire (the game owns the seed/input/character it needs). The `accept(...)` literal
 // stays here because Vite resolves the dep string from THIS module's source.
-if (import.meta.hot) {
+if (!previewMode && import.meta.hot) {
   import.meta.hot.accept(
     "./game",
     wireContentHMR({

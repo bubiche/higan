@@ -61,6 +61,9 @@ export {
   curve,
   delay,
   wave,
+  staged,
   type BulletBehavior,
+  type StagedSegment,
+  type StagedEdit,
 } from "./controllers";
 export { Shape } from "../render/shapes";

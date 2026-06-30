@@ -264,6 +264,13 @@ function makeContext(deps: EmitterDeps, group: number, rng: Rng): EmitterContext
       vx = 0;
       vy = 0;
       bp1 = speed;
+    } else if (beh.behavior === Behavior.Staged) {
+      // Launch normally (vx/vy above = segment 0's launch motion); the per-bullet
+      // state is which program (bp0) + which segment (bp1, starting at 0). The program
+      // is interned so identical timelines share one id (deterministic, since bp0 is
+      // hashed).
+      bp0 = system.registerProgram(beh.program!);
+      bp1 = 0;
     }
     return system.spawn(
       x,

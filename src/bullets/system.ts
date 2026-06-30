@@ -19,6 +19,7 @@
 // the seeded sim — which is what keeps the whole thing deterministic (Hard Rule 2).
 
 import { createBulletStore, MAX_BULLETS, type BulletStore } from "./store";
+import { applyStagedEdit, type StagedProgram } from "./staged";
 
 // Per-bullet behaviour selectors interpreted by the update loop. A bullet's
 // "behaviour" is one of these ids plus up to two numeric params (bp0, bp1) — a
@@ -42,6 +43,10 @@ export const Behavior = {
   Delay: 4,
   /** Weave sideways: lateral offset `bp0`*sin(`bp1`*age*dt) about the heading. */
   Wave: 5,
+  /** Run a staged timeline: `bp0` is the program id (into the system's table), `bp1`
+   *  the current segment. A timed sequence of edits + per-segment continuous motion
+   *  (see bullets/staged.ts); only staged bullets pay its cost. */
+  Staged: 6,
 } as const;
 export type Behavior = (typeof Behavior)[keyof typeof Behavior];
 
@@ -86,6 +91,15 @@ export interface BulletSystem {
   /** Free a slot. A no-op if the slot is already free. */
   despawn(slot: number): void;
   /**
+   * Register a staged-motion program and return its id (to store in a staged bullet's
+   * `bp0`). Interned by structure: a structurally-identical program always gets the same
+   * id, regardless of how often it is registered or the registration order. That keeps
+   * the table bounded by the number of *distinct* authored programs AND makes the id
+   * deterministic across a rebuild/replay — load-bearing, since `bp0` is folded into the
+   * hash. The system, not the emitter, owns the table so the ids stay sim-local.
+   */
+  registerProgram(program: StagedProgram): number;
+  /**
    * Advance every live bullet one fixed step (interpreting its behaviour) and
    * cull those past the bounds. `targetX`/`targetY` is the shared homing target.
    */
@@ -107,6 +121,13 @@ export function createBulletSystem(
   let freeTop = 0;
   let highWater = 0;
   let liveCount = 0;
+
+  // Staged-program table — shared reference data pointed at by a staged bullet's `bp0`.
+  // Structurally interned (key → id) so the same authored timeline collapses to one id
+  // however often it is fired, and the id is a deterministic function of the structure
+  // (see registerProgram on the interface). Reset by clear().
+  const programs: StagedProgram[] = [];
+  const programIndex = new Map<string, number>();
 
   const minX = -bounds.margin;
   const maxX = bounds.width + bounds.margin;
@@ -161,6 +182,14 @@ export function createBulletSystem(
       freeStack[freeTop++] = slot;
       liveCount--;
     },
+    registerProgram(program): number {
+      const existing = programIndex.get(program.key);
+      if (existing !== undefined) return existing;
+      const id = programs.length;
+      programs.push(program);
+      programIndex.set(program.key, id);
+      return id;
+    },
     update(dt, targetX, targetY): void {
       for (let i = 0; i < highWater; i++) {
         if (alive[i] === 0) continue;
@@ -212,6 +241,44 @@ export function createBulletSystem(
             const dLat = bp0[i] * (Math.sin(bp1[i] * t) - Math.sin(bp1[i] * (t - dt)));
             x[i] += -Math.sin(angle[i]) * dLat;
             y[i] += Math.cos(angle[i]) * dLat;
+          } else if (beh === Behavior.Staged) {
+            // Run a timeline (bullets/staged.ts): bp0 = program id, bp1 = segment.
+            // Advance through every segment whose absolute start tick has arrived
+            // (normally 0 per tick, 1 on a boundary), applying each one's entry edit,
+            // then run the current segment's continuous motion.
+            const prog = programs[bp0[i]];
+            let seg = bp1[i];
+            while (seg + 1 < prog.count && age[i] >= prog.startTick[seg + 1]) {
+              seg++;
+              applyStagedEdit(store, i, prog, seg, targetX, targetY);
+            }
+            bp1[i] = seg;
+            const m = prog.motion[seg];
+            if (m === Behavior.Ramp) {
+              const sp = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]) + prog.motP0[seg] * dt;
+              const an = angle[i] + prog.motP1[seg] * dt;
+              vx[i] = Math.cos(an) * sp;
+              vy[i] = Math.sin(an) * sp;
+              angle[i] = an;
+            } else if (m === Behavior.Home) {
+              const sp = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
+              const desired = Math.atan2(targetY - y[i], targetX - x[i]);
+              let diff = desired - angle[i];
+              while (diff > Math.PI) diff -= 2 * Math.PI;
+              while (diff < -Math.PI) diff += 2 * Math.PI;
+              const maxTurn = prog.motP0[seg] * dt;
+              if (diff > maxTurn) diff = maxTurn;
+              else if (diff < -maxTurn) diff = -maxTurn;
+              const an = angle[i] + diff;
+              vx[i] = Math.cos(an) * sp;
+              vy[i] = Math.sin(an) * sp;
+              angle[i] = an;
+            }
+            // Fast-path reclaim: once on the final segment with linear motion the
+            // timeline is inert, so become a plain Linear bullet (like delay→linear)
+            // and let later ticks take the fast path. bp0/bp1 keep their values (now
+            // ignored) and so stay stable in the hash.
+            if (seg === prog.count - 1 && m === Behavior.Linear) behavior[i] = Behavior.Linear;
           }
         }
 
@@ -232,6 +299,8 @@ export function createBulletSystem(
       freeTop = 0;
       highWater = 0;
       liveCount = 0;
+      programs.length = 0;
+      programIndex.clear();
     },
   };
 }

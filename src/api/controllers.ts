@@ -15,6 +15,9 @@
 //   ctx.ring({ count: 24, speed: 90, behavior: accelerate(120) })
 
 import { Behavior } from "../bullets/system";
+import { normalizeStaged, type StagedProgram, type StagedSegment, type StagedEdit } from "../bullets/staged";
+
+export type { StagedSegment, StagedEdit };
 
 /**
  * A per-bullet behaviour: which update branch runs, plus its two params. The
@@ -26,6 +29,10 @@ export interface BulletBehavior {
   readonly behavior: number;
   readonly bp0: number;
   readonly bp1: number;
+  /** Present only for `staged` behaviours: the normalized timeline program. The
+   *  emitter registers it into the bullet system at spawn and stores the returned id in
+   *  the bullet's `bp0`; `bp0`/`bp1` above are placeholders until then. */
+  readonly program?: StagedProgram;
 }
 
 /** Constant velocity — the default. */
@@ -83,4 +90,28 @@ export function delay(ticks: number): BulletBehavior {
  */
 export function wave(amplitude: number, frequency: number): BulletBehavior {
   return { behavior: Behavior.Wave, bp0: amplitude, bp1: frequency };
+}
+
+/**
+ * Run a *timeline* of motion changes on one bullet — the SoA-faithful version of
+ * Danmakufu's `ObjMove_AddPattern` family. Each segment carries an optional one-shot
+ * entry edit (re-aim / re-speed via `set`) and a continuous `motion` that runs until the
+ * next segment begins, so a single bullet can drift → freeze → re-aim → snap, or curve
+ * then home. `ticks: N` means the next segment's edit fires on the Nth update after
+ * spawn (the `delay(N)` convention); the last segment runs forever.
+ *
+ *   behavior: staged([
+ *     { ticks: 60, motion: curve(2.0) },                             // launch + curve
+ *     { ticks: 30, set: { speed: 0 } },                              // freeze
+ *     { set: { aimPlayer: true, speed: 220 }, motion: ramp(140, 0) },// re-aim + accelerate
+ *   ])
+ *
+ * Segment 0 takes no `set` (its motion is the launch — set initial speed/heading on the
+ * spawn call); `motion` is `linear`/`ramp`/`curve`/`home` only. Malformed programs throw
+ * at authoring time (surfaced at hot-reload). The program is shared, interned reference
+ * data — thousands of bullets fired by one call share one program; the per-bullet cost is
+ * just the two params it already has.
+ */
+export function staged(segments: StagedSegment[]): BulletBehavior {
+  return { behavior: Behavior.Staged, bp0: 0, bp1: 0, program: normalizeStaged(segments) };
 }
