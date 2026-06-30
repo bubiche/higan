@@ -11,6 +11,7 @@
 import type { Screen, Shell } from "../screen";
 import { createMenu, type Menu } from "../menu";
 import { createInGameScreen } from "./ingame";
+import { createRunController } from "../run";
 import { createTitleScreen } from "./title";
 import { DEFAULT_DIFFICULTIES } from "../../api/game";
 
@@ -37,8 +38,8 @@ export function createSelectScreen(shell: Shell): Screen {
         items: difficulties.map((d, rank) => ({
           kind: "action",
           label: d.label,
-          // The chosen rank is this entry's index; a fresh run starts with 0 continues.
-          onConfirm: () => shell.router.replace(createInGameScreen(shell, 0, rank)),
+          // The chosen rank is this entry's index; a fresh controller starts a clean run.
+          onConfirm: () => shell.router.replace(createInGameScreen(shell, createRunController(shell.def, rank))),
         })),
       });
     },

@@ -9,6 +9,7 @@
 import type { Screen, Shell } from "../screen";
 import { createMenu, type Menu } from "../menu";
 import { createInGameScreen } from "./ingame";
+import { createRunController } from "../run";
 import { createSelectScreen } from "./select";
 import { createOptionsScreen } from "./options";
 import { DEFAULT_DIFFICULTIES } from "../../api/game";
@@ -21,7 +22,8 @@ export function createTitleScreen(shell: Shell): Screen {
   // default), in which case there's nothing to choose: go straight in at rank 0.
   const start = (): void => {
     const difficulties = def.difficulties ?? DEFAULT_DIFFICULTIES;
-    if (difficulties.length <= 1) shell.router.replace(createInGameScreen(shell, 0, 0));
+    // Single-difficulty games skip select and start a fresh run at rank 0.
+    if (difficulties.length <= 1) shell.router.replace(createInGameScreen(shell, createRunController(def, 0)));
     else shell.router.replace(createSelectScreen(shell));
   };
 

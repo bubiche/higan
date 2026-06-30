@@ -2,35 +2,42 @@
 //
 // Pushed over the in-game screen so the frozen death moment shows behind it (same
 // flow-pause mechanic as the pause menu). The player chooses to continue the run or
-// give up to the results screen. Continues are LIMITED (MAX_CONTINUES per run): each
-// continue rebuilds the run, which on a fresh sim resets score and restores lives/bombs
-// to the start-of-stage defaults (createPlayer) — exactly the "reset score + restored
-// lives" economy — and advances the run's continue count so the prompt collapses to
-// give-up-only once they're spent. The count is run-level meta threaded above the sim;
-// it absorbs into RunState at the cross-stage pass, where the continue/give-up DECISION
-// also becomes recorded per-run-replay meta-input (a genuine player choice, not
-// derivable from sim state). Resetting score on a fresh sim already falls out for free.
+// give up to the results screen. Continues are LIMITED (config.continues per run): each
+// continue rebuilds the run from the SAME controller, which on a fresh sim resets score
+// and restores lives/bombs to the start-of-stage defaults (createPlayer) — exactly the
+// "reset score + restored lives" economy — and spends a continue so the prompt collapses
+// to give-up-only once they're used up.
+//
+// The continue/give-up DECISION is recorded per-run-replay meta-input (a genuine player
+// choice, not derivable from sim state): choosing Continue promotes the just-finished
+// play into the run's pre-continue segment log (`recordContinue`), so a saved replay
+// reproduces the whole run across the rebuild. Give-up drops that play — the run ended,
+// so it is not a prior segment of an ongoing run.
 
 import type { Screen, Shell } from "../screen";
+import type { RunController } from "../run";
+import type { ReplaySegment } from "../../touhou/replay";
 import { createMenu, type Menu, type MenuItem } from "../menu";
 import { createInGameScreen } from "./ingame";
 import { createResultsScreen } from "./results";
 
-/** `continuesUsed` is how many continues this run has already spent (0 on the first
- *  game-over). Threaded in by the in-game screen, which carries it across the rebuild.
- *  The per-run continue allowance is a game-level run rule (`config.continues`).
- *  `difficulty` is the run's chosen rank, carried through unchanged so the rebuilt run
- *  stays at the same difficulty. */
-export function createContinueScreen(shell: Shell, continuesUsed = 0, difficulty = 0): Screen {
+/** `run` is the run-scoped controller (rank + continue count + segment log), carried
+ *  across the rebuild so the run spans the continue. `lastPlay` is the play that just
+ *  ended in game-over: on Continue it becomes a prior segment; on give-up it is dropped.
+ *  The per-run continue allowance is a game-level run rule (`config.continues`). */
+export function createContinueScreen(shell: Shell, run: RunController, lastPlay: ReplaySegment): Screen {
   const { overlay, input, router } = shell;
-  const remaining = shell.def.config.continues - continuesUsed;
+  // Read BEFORE recordContinue runs, so this prompt offers the allowance still left.
+  const remaining = shell.def.config.continues - run.continuesUsed;
   let menu: Menu;
 
   const doContinue = (): void => {
+    // Promote the just-finished play into the run's history and spend a continue, then
+    // rebuild the run from the same controller. The fresh sim resets score + restores
+    // lives/bombs; the next game-over offers one fewer continue.
+    run.recordContinue(lastPlay);
     router.pop(); // remove this prompt…
-    // …and rebuild the run at the same difficulty. The fresh sim resets score + restores
-    // lives/bombs; the incremented count means the next game-over offers one fewer continue.
-    router.replace(createInGameScreen(shell, continuesUsed + 1, difficulty));
+    router.replace(createInGameScreen(shell, run));
   };
   const giveUp = (): void => {
     router.pop();

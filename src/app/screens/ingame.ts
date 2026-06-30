@@ -10,6 +10,7 @@
 // The renderers are owned by the shell and reused; this screen only drives them.
 
 import type { Screen, Shell } from "../screen";
+import type { RunController } from "../run";
 import { createResultsScreen, type RunOutcome } from "./results";
 import { createPauseScreen } from "./pause";
 import { createContinueScreen } from "./continue";
@@ -19,7 +20,7 @@ import { mixSeed } from "../../core/prng";
 import { createSimDriver, type SimDriver } from "../../core/runtime";
 import { DT } from "../../core/playfield";
 import { PlayerState } from "../../touhou/player";
-import { serializeRunReplay, deserializeRunReplay } from "../../touhou/replay";
+import { serializeRunReplay, deserializeRunReplay, type RunReplay } from "../../touhou/replay";
 import { computeConfigId } from "../replay-compat";
 import { Shape } from "../../render/shapes";
 import { INSTANCE_FLOATS, type Overlay } from "../../render/bullets";
@@ -46,52 +47,49 @@ export function asInGame(screen: Screen): InGameScreen | null {
 }
 
 /**
- * Build the in-game screen. `continuesUsed` is run-level meta carried ABOVE the sim
- * (each stage sim is a fresh rebuild): a fresh run (title Start / pause Retry) passes 0;
- * a continue passes the prior count + 1, so the continue prompt can bound the choice and
- * a continue's fresh sim already resets score/lives (createPlayer defaults). It lives
- * here — threaded through the screen constructors — rather than in a RunController/
- * RunState; that struct is born at the cross-stage pass, where it also absorbs this field.
+ * Build the in-game screen over a `RunController` — the run-scoped state that outlives
+ * this screen's sim (run seed, rank, character, the data fingerprint, the continue
+ * count, and the pre-continue segment log). Each stage sim is a fresh rebuild within the
+ * run, so a continue / retry / hot-reload replaces this screen, but a continue passes the
+ * SAME controller into the next one (a retry/new run builds a fresh controller); that is
+ * how a run spans the rebuild. The controller resets nothing on a continue's fresh sim —
+ * score/lives restore from `createPlayer` defaults for free.
  *
- * `difficulty` is the chosen run rank (a 0-based index into the game's difficulties):
- * the difficulty-select screen supplies it, a continue carries it unchanged (a continue
- * keeps the run's rank), and it feeds the sim as construction input that content
- * branches on. Defaults to rank 0 (the game's first difficulty) for a direct
- * construction without going through the select screen. It is the run's CURRENT rank
- * and so is mutable: loading a saved replay adopts the recorded rank in place (see the
- * load handler) and rebuilds the sim at it, which is how a replay reproduces at its own
- * difficulty without swapping screens.
+ * The run's CURRENT rank is `run.difficulty`, read fresh on every `buildSim` (not
+ * captured) so loading a saved replay can adopt the recorded rank in place and have the
+ * next rebuild run at it — which is how a replay reproduces at its own difficulty without
+ * swapping screens.
  */
-export function createInGameScreen(shell: Shell, continuesUsed = 0, difficulty = 0): InGameScreen {
+export function createInGameScreen(shell: Shell, run: RunController): InGameScreen {
   const { sidebar, input, bullets, lasers, def } = shell;
   // The slice runs the default character; character-select (and a real chosen index)
-  // arrives later. The replay blob captures this index and a load rejects any other.
-  const CHARACTER_INDEX = 0;
-  const character = def.characters[CHARACTER_INDEX]!;
+  // arrives later. The controller captures the index; a load rejects any other.
+  const character = def.characters[run.character]!;
   // The slice runs the first stage as stage 0 of the run. The driver is seeded with
   // the RUN seed (what a replay captures); the per-stage seed is mixed from it, so
   // chaining more stages later only changes the index. `buildSim` reads the stage from
   // `shell.def` FRESH each time (not a captured binding) so a hot-reload — which swaps
   // `shell.def` for the freshly-imported game and then resyncs — rebuilds with the new
-  // code, AND a brand-new run (retry / return-to-title → start) picks it up too. The
-  // sim is reassignable so backward-scrub / hot-reload / a new run can rebuild. (The
-  // character is captured: editing the player config takes effect on the next fresh
-  // run, not the live one — content scripts are what hot-reload live.)
+  // code, AND a brand-new run (retry / return-to-title → start) picks it up too; it
+  // reads `run.difficulty` fresh too, so an adopted replay rank lands on the next
+  // rebuild. The sim is reassignable so backward-scrub / hot-reload / a new run / a
+  // loaded replay can rebuild. (The character is captured: editing the player config
+  // takes effect on the next fresh run, not the live one — content scripts hot-reload.)
   const STAGE_INDEX = 0;
   const buildSim = (runSeed: number): Simulation =>
     createStageSim(
       shell.def.stages[STAGE_INDEX]!,
       mixSeed(runSeed, STAGE_INDEX),
       character,
-      difficulty,
+      run.difficulty,
       shell.def.config,
       DT,
     );
-  let sim: Simulation = buildSim(def.seed);
+  let sim: Simulation = buildSim(run.runSeed);
 
   const driver: SimDriver = createSimDriver({
     dt: DT,
-    seed: def.seed,
+    seed: run.runSeed,
     sampleInput: (tick) => input.sample(tick),
     step: (frame) => sim.step(frame),
     rebuild: (seed) => {
@@ -117,6 +115,12 @@ export function createInGameScreen(shell: Shell, continuesUsed = 0, difficulty =
   let replayStatus = "";
   // Set once the run ends so we transition exactly once.
   let ended = false;
+  // Multi-segment replay playback (screen-local, out of the sim). A loaded blob's
+  // segments are each a separate play of a stage (a continue = another segment), so they
+  // can't share one sim — playback loads them one at a time, landing at the first, and
+  // the "next segment" button advances through the rest. Null = not in replay playback.
+  let loadedReplay: RunReplay | null = null;
+  let replayIndex = 0;
 
   // Cosmetic overlays (out of the sim/hash): the player marker and the focus hitbox
   // dot. They read player state each frame; the sim is the source of truth.
@@ -132,38 +136,69 @@ export function createInGameScreen(shell: Shell, continuesUsed = 0, difficulty =
   // ── Replay save/load (engine primitive; the buttons are shell UI) ─────────────
   let saveBtn: HTMLButtonElement;
   let loadBtn: HTMLButtonElement;
+  let nextSegBtn: HTMLButtonElement;
   let replayFile: HTMLInputElement;
 
   const downloadReplay = (): void => {
+    // In playback (a replay is loaded), re-export the LOADED blob verbatim — its priors +
+    // the live driver are hybrid state (the controller's pre-load priors plus only the
+    // viewed segment), so assembling from them would silently drop the other segments.
+    // Re-serializing the loaded run is a lossless round-trip; assembling the LIVE run from
+    // the controller (priors + the current play) is the normal save. (Resuming a live run
+    // out of a loaded replay is the run-state handoff story, deferred.)
     const recording = driver.getRecording();
-    // Wrap the current sim's recording as a one-segment per-run blob, stamped with the
-    // run-parameters the sim was built at (rank + character) and a fingerprint of the
-    // game's data, so a load can rebuild at the right rank and reject a stale build.
-    const replay = serializeRunReplay({
-      runSeed: recording.seed,
-      difficulty,
-      character: CHARACTER_INDEX,
-      configId: computeConfigId(def),
-      segments: [{ stageIndex: STAGE_INDEX, frames: recording.frames }],
-    });
+    const replay = loadedReplay ?? run.assembleReplay({ stageIndex: STAGE_INDEX, frames: recording.frames });
+    const blob = serializeRunReplay(replay);
     // `as BlobPart`: the Uint8Array is a valid blob part at runtime; the cast
     // bridges TS's typed-array buffer generic to the DOM's ArrayBuffer.
-    const blob = new Blob([replay as BlobPart], { type: "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
+    const file = new Blob([blob as BlobPart], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(file);
     // Firefox won't fire a programmatic click on a detached anchor, and revoking
     // the URL synchronously can truncate the download — attach, click, defer revoke.
     const a = document.createElement("a");
     a.href = url;
-    a.download = `higan-replay-${recording.frames.length}f.hreplay`;
+    const segCount = replay.segments.length;
+    const liveFrames = replay.segments[segCount - 1]!.frames.length;
+    a.download = `higan-replay-${segCount}seg-${liveFrames}f.hreplay`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 0);
-    replayStatus = `saved ${recording.frames.length} frames`;
+    replayStatus = loadedReplay
+      ? `re-saved loaded replay (${segCount} segment${segCount > 1 ? "s" : ""})`
+      : segCount > 1
+        ? `saved ${segCount} segments (${liveFrames}f live)`
+        : `saved ${liveFrames} frames`;
+  };
+
+  // Load segment `i` of the currently-loaded replay into the live driver: rebuild at the
+  // adopted rank (via `buildSim`, reading `run.difficulty`) seeded with the RUN seed —
+  // NOT a per-stage seed; `buildSim` mixes the stage index in itself, so passing a mixed
+  // seed here would double-mix and reproduce the WRONG trajectory — then replay the
+  // segment's frames to the end, paused. The button advances `i` through the segments.
+  const loadSegment = (i: number): void => {
+    const blob = loadedReplay!;
+    const seg = blob.segments[i]!;
+    replayIndex = i;
+    driver.loadRecording({ seed: blob.runSeed, frames: seg.frames });
+    const total = blob.segments.length;
+    replayStatus =
+      total > 1
+        ? `replay segment ${i + 1}/${total} (${seg.frames.length}f) — paused at end`
+        : `loaded ${seg.frames.length} frames — paused at end`;
+    refreshReplayControls();
+  };
+
+  // Show the "next segment" button only while a multi-segment replay has a segment after
+  // the one on screen; its label names the segment it advances TO.
+  const refreshReplayControls = (): void => {
+    const more = loadedReplay !== null && replayIndex < loadedReplay.segments.length - 1;
+    nextSegBtn.hidden = !more;
+    if (more) nextSegBtn.textContent = `⏭ Segment ${replayIndex + 2}/${loadedReplay!.segments.length}`;
   };
 
   const loadReplayFile = async (file: File): Promise<void> => {
-    let replay;
+    let replay: RunReplay;
     try {
       replay = deserializeRunReplay(new Uint8Array(await file.arrayBuffer()));
     } catch (err) {
@@ -177,27 +212,34 @@ export function createInGameScreen(shell: Shell, continuesUsed = 0, difficulty =
       replayStatus = "load failed: replay was recorded against different game data";
       return;
     }
-    if (replay.character !== CHARACTER_INDEX) {
+    if (replay.character !== run.character) {
       replayStatus = `load failed: unsupported character ${replay.character}`;
       return;
     }
-    if (replay.segments.length !== 1) {
-      // Run-spanning (multi-segment) playback arrives with the RunController.
-      replayStatus = `load failed: multi-segment replay (${replay.segments.length}) not yet supported`;
+    if (replay.segments.length === 0) {
+      replayStatus = "load failed: replay has no segments";
       return;
     }
-    // Adopt the recorded rank IN PLACE: reassign the run's current rank, then load into
-    // the existing driver — `loadRecording` rebuilds the sim (via `buildSim`, which reads
-    // `difficulty`) at that rank and replays the segment to the end, paused. Done in place
-    // rather than by swapping to a fresh screen: the Save/Load buttons live in the sidebar
-    // and stay clickable while an overlay (e.g. the pause menu) sits on top of the in-game
-    // screen, so a `router.replace` here would pop the OVERLAY and orphan the in-game
-    // screen beneath — which keeps rendering its now-frozen player marker (a "phantom"
-    // second player). Rebuilding this screen's own sim can't orphan anything.
-    const seg = replay.segments[0]!;
-    difficulty = replay.difficulty;
-    driver.loadRecording({ seed: replay.runSeed, frames: seg.frames });
-    replayStatus = `loaded ${seg.frames.length} frames — paused at end`;
+    // The slice runs only stage 0, so every segment must be a stage-0 play (a continue).
+    // The format supports per-stage indices for multi-stage runs, but `buildSim` can only
+    // build stage 0 until then — reject a genuine multi-stage blob rather than mis-seed it.
+    if (replay.segments.some((s) => s.stageIndex !== STAGE_INDEX)) {
+      replayStatus = "load failed: multi-stage replay not yet supported";
+      return;
+    }
+    // Adopt the recorded rank IN PLACE on the controller, then play the segments. Done in
+    // place rather than by swapping to a fresh screen: the Save/Load buttons live in the
+    // sidebar and stay clickable while an overlay (e.g. the pause menu) sits on top, so a
+    // `router.replace` here would pop the OVERLAY and orphan the in-game screen beneath —
+    // which keeps rendering its now-frozen player marker (a "phantom" second player).
+    // Rebuilding this screen's own sim can't orphan anything. Each segment is a separate
+    // play (a continue), so they load one at a time: land at the first, advance with the
+    // button — each advance is a real replay that reproduces that segment at the adopted
+    // rank, so the multi-segment run is demonstrably bit-identical across all of them.
+    loadedReplay = replay;
+    run.difficulty = replay.difficulty;
+    ended = false;
+    loadSegment(0);
   };
 
   const buildDom = (): void => {
@@ -206,10 +248,12 @@ export function createInGameScreen(shell: Shell, continuesUsed = 0, difficulty =
       <div id="replay-controls">
         <button id="save-replay" type="button">⬇ Save replay</button>
         <button id="load-replay" type="button">⬆ Load replay…</button>
+        <button id="next-segment" type="button" hidden></button>
         <input id="replay-file" type="file" accept=".hreplay,application/octet-stream" hidden />
       </div>`;
     saveBtn = sidebar.querySelector("#save-replay")!;
     loadBtn = sidebar.querySelector("#load-replay")!;
+    nextSegBtn = sidebar.querySelector("#next-segment")!;
     replayFile = sidebar.querySelector("#replay-file")!;
     // The HUD reads sim state every frame and keeps no counters of its own.
     hud = createHud(sidebar.querySelector("#hud")!);
@@ -222,20 +266,30 @@ export function createInGameScreen(shell: Shell, continuesUsed = 0, difficulty =
       replayFile.click();
       loadBtn.blur();
     });
+    nextSegBtn.addEventListener("click", () => {
+      if (loadedReplay && replayIndex < loadedReplay.segments.length - 1) loadSegment(replayIndex + 1);
+      nextSegBtn.blur();
+    });
     replayFile.addEventListener("change", () => {
       const file = replayFile.files?.[0];
       if (file) void loadReplayFile(file);
       replayFile.value = ""; // reset so re-picking the same file fires `change` again
     });
+    refreshReplayControls();
   };
 
   const end = (outcome: RunOutcome): void => {
     ended = true;
     if (outcome === "gameover") {
       // Push (not replace) so the frozen death moment shows behind the prompt; the
-      // continue choice then either rebuilds the run (carrying the continue count AND the
-      // chosen difficulty — a continue keeps the run's rank) or falls through to results.
-      shell.router.push(createContinueScreen(shell, continuesUsed, difficulty));
+      // continue choice rebuilds the run from the SAME controller (carrying its rank +
+      // continue count) or falls through to results. Hand the just-finished play's
+      // recording to the prompt: on Continue it becomes a prior segment of the ongoing
+      // run; on give-up it's dropped (the run ended). The driver hasn't advanced since
+      // game-over fired, so its recording is final at the death tick.
+      shell.router.push(
+        createContinueScreen(shell, run, { stageIndex: STAGE_INDEX, frames: driver.getRecording().frames }),
+      );
     } else {
       // Clear: hand the final score (read off the sim) to results. The game-over path
       // goes through the continue prompt instead and carries no score.
@@ -258,8 +312,9 @@ export function createInGameScreen(shell: Shell, continuesUsed = 0, difficulty =
         if (code === "Escape") {
           // Flow-pause: hand control to the pause overlay. Return BEFORE advancing
           // the sim so no extra tick runs this frame and end-detection can't fire
-          // into the just-pushed pause screen (which would corrupt the stack).
-          shell.router.push(createPauseScreen(shell));
+          // into the just-pushed pause screen (which would corrupt the stack). The
+          // controller goes too, so Retry can start a fresh run at the same rank.
+          shell.router.push(createPauseScreen(shell, run));
           return;
         }
         if (code === "Space") driver.togglePause();
