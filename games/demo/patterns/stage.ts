@@ -1,57 +1,106 @@
 // Stage scripts — authored against the public stage API.
 //
 // A stage is the scene root: a coroutine that orchestrates the whole stage in the
-// same idiom as the boss. It `yield`s to wait, `sub`s emitters, and calls
-// `ctx.spawnBoss()` when the boss's turn comes. Enemy waves + a midboss precede the
-// boss in a full stage (those land with the enemy system); for now the stage's job
-// is simply to bring on the boss.
+// same idiom as the boss. It `yield`s to wait, `spawnEnemy`s waves over time, and
+// `yield* ctx.boss(...)`s each boss encounter — PAUSING on the boss and resuming the
+// next wave when it falls. Stage 1 runs opening waves → a midboss → more waves → the
+// final boss; the run ends when this coroutine RETURNS (after the final boss), not
+// when any single boss is beaten, so a midboss falling just resumes the stage.
 
-import { type StageScript, type EmitterScript, Shape } from "../../../src/api";
+import { type StageScript, type StageContext, type EmitterScript, Shape } from "../../../src/api";
 import { PLAYFIELD_W } from "../../../src/core/playfield";
-import { SHOWCASE } from "./showcase";
+import { MIDBOSS } from "./midboss";
 
-/** A popcorn enemy: dives in from the top, fires a few aimed spreads at the player,
- *  then dives off the bottom (the field cull frees it). Its `ctx.x/y` IS the enemy's
- *  position — the sim publishes it to the hittable struct each tick — and `ctx.aimed`
- *  fires its danmaku on the enemy stream. Pure of (rng, tick, target). */
+const AMBER: readonly [number, number, number] = [1, 0.75, 0.3];
+const TEAL: readonly [number, number, number] = [0.5, 0.9, 0.85];
+const ROSE: readonly [number, number, number] = [1, 0.6, 0.8];
+
+// ── Enemy AI (each an emitter the sim binds to a hittable enemy slot) ───────────
+// An enemy's `ctx.x/y` IS its position — the sim publishes it to the struct each tick
+// — and `ctx.aimed/ring` fire its danmaku on the enemy stream. All pure of (rng, tick,
+// target). They end by returning (flew their course), dying (hp 0), or off-field cull.
+
+/** Popcorn: dives in to a hover line, fires a few aimed fans at the player, then dives
+ *  off the bottom (the field cull frees it). */
 const popcorn: EmitterScript = function* (ctx) {
-  // Dive in to a hover line.
   for (let i = 0; i < 36; i++) {
     ctx.y += 2.4;
     yield 1;
   }
-  // Attack: three aimed three-bullet fans.
   for (let i = 0; i < 3; i++) {
     ctx.aimed({ count: 3, spread: 0.5, speed: 150, sprite: Shape.Rice, color: [1, 0.55, 0.55] });
     yield 36;
   }
-  // Dive off the bottom; the off-field cull frees it once it clears the field.
   for (let i = 0; i < 120; i++) {
     ctx.y += 4;
     yield 1;
   }
 };
 
-/** Stage 1: a small opening wave of popcorn, then the boss. Five enemies sweep in
- *  across the top on a stagger (enemies + wave timing ride the enemy stream); after a
- *  beat the stage spawns the boss, which runs on its own protected stream. (A full
- *  stage — denser waves + a midboss + dialogue — is the next content checkpoint.) */
-export const demoStage: StageScript = function* (ctx) {
-  const lanes = 5;
-  for (let i = 0; i < lanes; i++) {
-    const x = (PLAYFIELD_W * (i + 1)) / (lanes + 1);
-    ctx.spawnEnemy(popcorn, x, -12, { hp: 60, radius: 14, sprite: Shape.BigOrb, color: [1, 0.75, 0.3] });
+/** Side-sweeper: enters from one edge at a fixed height, glides across the top band
+ *  firing aimed pairs, and exits the far side (culled off-field). `dir` +1 = left→right,
+ *  -1 = right→left. */
+const sweeper = (dir: number): EmitterScript =>
+  function* (ctx) {
+    for (let i = 0; i < 240; i++) {
+      ctx.x += dir * 2.4;
+      if (i % 45 === 30) {
+        ctx.aimed({ count: 2, spread: 0.28, speed: 135, sprite: Shape.Rice, color: TEAL });
+      }
+      yield 1;
+    }
+  };
+
+/** Turret: dives to a hover point, fires a handful of slow jittered rings, then
+ *  retreats up off the top (culled). Tankier than popcorn — a small score anchor. */
+const turret: EmitterScript = function* (ctx) {
+  for (let i = 0; i < 30; i++) {
+    ctx.y += 2.2;
+    yield 1;
+  }
+  for (let i = 0; i < 4; i++) {
+    ctx.ring({ count: 10, speed: 70, angle: ctx.rng.range(0, Math.PI * 2), radius: 4, color: ROSE, sprite: Shape.Orb });
     yield 40;
   }
-  yield 150;
-  ctx.spawnBoss();
+  for (let i = 0; i < 80; i++) {
+    ctx.y -= 3;
+    yield 1;
+  }
 };
 
-/** A guard-only scene that runs every showcase pattern at once, so the continuous
- *  determinism guard covers the `wave`/`delay`/`ramp`-speed-change behavior branches
- *  the boss doesn't exercise. NOT a playable scene — the showcase emitters overflow
- *  the store when run together (deterministically), which is fine for branch
- *  coverage but would not read on screen. */
-export const showcaseStage: StageScript = function* (ctx) {
-  for (const p of SHOWCASE) ctx.sub(p.script);
+/** Spawn `n` popcorn across the top on a lane stagger, `gap` ticks apart. */
+function* popcornLine(ctx: StageContext, n: number, gap: number): Generator<number, void, unknown> {
+  for (let i = 0; i < n; i++) {
+    const x = (PLAYFIELD_W * (i + 1)) / (n + 1);
+    ctx.spawnEnemy(popcorn, x, -12, { hp: 60, radius: 14, sprite: Shape.BigOrb, color: AMBER });
+    yield gap;
+  }
+}
+
+/** Stage 1: opening waves → midboss → more waves → final boss. The enemies + wave
+ *  timing ride the (play-dependent) enemy stream; each boss the script runs branches
+ *  onto its own protected stream. */
+export const demoStage: StageScript = function* (ctx) {
+  // ── Opening waves ──
+  yield* popcornLine(ctx, 5, 40);
+  yield 70;
+  ctx.spawnEnemy(sweeper(1), -12, 90, { hp: 90, radius: 14, sprite: Shape.BigOrb, color: TEAL });
+  ctx.spawnEnemy(sweeper(-1), PLAYFIELD_W + 12, 140, { hp: 90, radius: 14, sprite: Shape.BigOrb, color: TEAL });
+  yield 170;
+  yield* popcornLine(ctx, 4, 36);
+  yield 130;
+
+  // ── Midboss ── awaited: the stage pauses here and the waves below resume when it falls.
+  yield* ctx.boss(MIDBOSS);
+  yield 90;
+
+  // ── Post-midboss waves ──
+  ctx.spawnEnemy(turret, PLAYFIELD_W * 0.3, -12, { hp: 150, radius: 16, sprite: Shape.BigOrb, color: ROSE });
+  ctx.spawnEnemy(turret, PLAYFIELD_W * 0.7, -12, { hp: 150, radius: 16, sprite: Shape.BigOrb, color: ROSE });
+  yield 210;
+  yield* popcornLine(ctx, 6, 30);
+  yield 150;
+
+  // ── Final boss ── the stage RETURNS when it falls → run ends "clear".
+  yield* ctx.boss();
 };

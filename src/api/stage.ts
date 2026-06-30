@@ -16,6 +16,7 @@
 // not hand its stream down to the boss.
 
 import type { EmitterScript, RunningEmitter, Vec2 } from "./emitter";
+import type { BossScript } from "./boss";
 import type { Rng } from "../core/prng";
 
 /**
@@ -64,11 +65,18 @@ export interface StageContext {
    */
   spawnEnemy(script: EmitterScript, x: number, y: number, spec: EnemySpec): void;
   /**
-   * Spawn the stage's boss (the `boss` on its `StageDef`). The sim creates it on the
-   * dedicated boss stream and tracks it for HP-drain / defeat detection. A no-op if
-   * the stage defines no boss. Call it when the pre-boss content is done.
+   * Run a boss encounter: spawn it on the dedicated (protected) boss stream and yield
+   * until it ends — beaten (its phases drain to 0) or its coroutine returns. `yield*`
+   * it from the stage, so the stage PAUSES on the boss and resumes the next wave when
+   * it falls. A midboss is just a boss the stage runs before the end; the stage script
+   * decides the ordering, and the run's in-stage phase ends when the *stage* returns
+   * (after its last `yield* ctx.boss()`), not when any single boss is beaten.
+   *
+   * With no `script`, runs the stage's headline `boss` (`StageDef.boss`) — kept a named
+   * field so it can be hot-reloaded by name; pass a script for a midboss or any extra
+   * encounter. Resolves immediately (a no-op) if no boss resolves.
    */
-  spawnBoss(): void;
+  boss(script?: BossScript): Generator<number, void, unknown>;
 }
 
 /** A stage: `ctx => function*`. `yield n` waits n ticks; the stage drives the
@@ -88,8 +96,22 @@ export interface StageDeps {
   spawnChild(script: EmitterScript, x: number, y: number, group: number, rng: Rng): void;
   /** Spawn an enemy bound to a struct slot on the enemy stream (sim-implemented). */
   spawnEnemy(script: EmitterScript, x: number, y: number, spec: EnemySpec): void;
-  /** Spawn the stage's boss on the boss stream (sim-implemented). */
-  spawnBoss(): void;
+  /** Spawn a boss on the boss stream and return its root (or null if none resolves —
+   *  `script` omitted AND the `StageDef` has no boss). The sim tracks it for HP-drain /
+   *  defeat; the stage awaits its `done` via `boss()`. */
+  spawnBoss(script?: BossScript): RunningEmitter | null;
+}
+
+/** Run one boss encounter to its end: spawn it on the boss stream, then poll its root
+ *  once per tick until the boss coroutine returns (beaten or out of phases). Makes no
+ *  rng draws of its own, so awaiting a boss never perturbs the enemy stream. */
+function* runBossEncounter(
+  deps: StageDeps,
+  script: BossScript | undefined,
+): Generator<number, void, unknown> {
+  const root = deps.spawnBoss(script);
+  if (!root) return;
+  while (!root.done) yield 1;
 }
 
 /** Begin running `script` at (x, y) as the scene's group-0 root. Resumes first at
@@ -113,8 +135,8 @@ export function startStage(
     spawnEnemy(script, ex, ey, spec) {
       deps.spawnEnemy(script, ex, ey, spec);
     },
-    spawnBoss() {
-      deps.spawnBoss();
+    boss(script) {
+      return runBossEncounter(deps, script);
     },
   };
   return { ctx, gen: script(ctx), resumeTick: startTick, done: false, group: 0 };

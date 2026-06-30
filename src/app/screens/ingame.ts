@@ -24,37 +24,40 @@ import { Shape } from "../../render/shapes";
 import { INSTANCE_FLOATS, type Overlay } from "../../render/bullets";
 import { marshalShots } from "../../render/shots";
 import { marshalEnemies } from "../../render/enemies";
-import type { BossScript } from "../../api/boss";
 
 /** Speeds the number keys cycle through (debugger slow-mo). */
 const SPEEDS: Record<string, number> = { Digit1: 0.25, Digit2: 0.5, Digit3: 1 };
 
-/** The in-game screen exposes a boss hot-reload hook for dev HMR. */
+/** The in-game screen exposes a hot-reload hook for dev HMR. */
 export interface InGameScreen extends Screen {
-  /** Swap the running boss script and replay to the current tick (HMR). */
-  hotReloadBoss(boss: BossScript): void;
+  /** Rebuild the live run from the (already-swapped) `shell.def` and replay to the
+   *  current tick (HMR). The bootstrap swaps `shell.def` for the freshly-imported game
+   *  first, then calls this so the in-progress scene picks up the new content. */
+  hotReloadStage(): void;
 }
 
 /** Narrow a screen to the in-game screen if it is one (used by dev HMR). */
 export function asInGame(screen: Screen): InGameScreen | null {
-  return typeof (screen as Partial<InGameScreen>).hotReloadBoss === "function"
+  return typeof (screen as Partial<InGameScreen>).hotReloadStage === "function"
     ? (screen as InGameScreen)
     : null;
 }
 
 export function createInGameScreen(shell: Shell): InGameScreen {
   const { sidebar, input, bullets, lasers, def } = shell;
-  const stage = def.stages[0]!;
   const character = def.characters[0]!;
   // The slice runs the first stage as stage 0 of the run. The driver is seeded with
   // the RUN seed (what a replay captures); the per-stage seed is mixed from it, so
-  // chaining more stages later only changes the index. `boss` stays a mutable
-  // binding so a hot-reload swaps the boss the stage spawns and `resync` rebuilds
-  // with it. The sim is reassignable so backward-scrub / hot-reload can rebuild.
+  // chaining more stages later only changes the index. `buildSim` reads the stage from
+  // `shell.def` FRESH each time (not a captured binding) so a hot-reload — which swaps
+  // `shell.def` for the freshly-imported game and then resyncs — rebuilds with the new
+  // code, AND a brand-new run (retry / return-to-title → start) picks it up too. The
+  // sim is reassignable so backward-scrub / hot-reload / a new run can rebuild. (The
+  // character is captured: editing the player config takes effect on the next fresh
+  // run, not the live one — content scripts are what hot-reload live.)
   const STAGE_INDEX = 0;
-  let boss = stage.boss;
   const buildSim = (runSeed: number): Simulation =>
-    createStageSim({ ...stage, boss }, mixSeed(runSeed, STAGE_INDEX), character, DT);
+    createStageSim(shell.def.stages[STAGE_INDEX]!, mixSeed(runSeed, STAGE_INDEX), character, DT);
   let sim: Simulation = buildSim(def.seed);
 
   const driver: SimDriver = createSimDriver({
@@ -198,10 +201,11 @@ export function createInGameScreen(shell: Shell): InGameScreen {
 
       // Transition only during live play — never while paused/stepping/scrubbing or
       // sitting at the end of a loaded replay, so the debugger can inspect an ended
-      // run without being bounced to results.
+      // run without being bounced to results. Game-over wins ties: a dead player ends
+      // the run even if a boss happens to time out its last phase the same tick.
       if (!ended && !driver.paused) {
-        if (sim.boss?.defeated) end("clear");
-        else if (sim.player.state === PlayerState.GameOver) end("gameover");
+        if (sim.player.state === PlayerState.GameOver) end("gameover");
+        else if (sim.stageComplete) end("clear");
       }
     },
     render(): void {
@@ -232,8 +236,7 @@ export function createInGameScreen(shell: Shell): InGameScreen {
       const drawn = bullets.draw(system.store, system.alive, system.highWater, overlays);
       hud.update(sim, driver, { beams, drawn, replayStatus });
     },
-    hotReloadBoss(newBoss: BossScript): void {
-      boss = newBoss;
+    hotReloadStage(): void {
       driver.resync();
     },
   };

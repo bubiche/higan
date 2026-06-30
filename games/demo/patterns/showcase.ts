@@ -11,6 +11,7 @@
 import {
   type EmitterScript,
   type ScenePattern,
+  type StageScript,
   accelerate,
   delay,
   home,
@@ -225,6 +226,17 @@ const flutterPattern: EmitterScript = function* (ctx) {
     phase += 0.2;
     yield 16;
   }
+};
+
+/** A guard-only scene that runs every showcase pattern at once, so the continuous
+ *  determinism guard covers the `wave`/`delay`/`ramp`-speed-change behavior branches
+ *  the boss doesn't exercise. NOT a playable scene — the showcase emitters overflow
+ *  the store when run together (deterministically), which is fine for branch coverage
+ *  but would not read on screen. Lives here (beside the patterns it runs) so the
+ *  playable stage module stays free of guard-only content — which also keeps the demo
+ *  stage's single importer the game root, so editing it hot-swaps instead of reloading. */
+export const showcaseStage: StageScript = function* (ctx) {
+  for (const p of SHOWCASE) ctx.sub(p.script);
 };
 
 /** The patterns the showcase scene cycles through, in order. */

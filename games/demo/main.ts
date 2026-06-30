@@ -6,16 +6,16 @@
 // edited boss code, re-checks determinism against it, and resyncs the running stage
 // if one is in progress.
 
-import { runGame, asInGame } from "../../src/app";
+import { runGame, wireContentHMR } from "../../src/app";
 import { assertDeterministic } from "../../src/core/determinism";
 import { assertStreamIsolation } from "../../src/core/isolation";
 import { PATTERN_TICKS } from "../../src/core/sim";
 import { mixSeed } from "../../src/core/prng";
 import { DT } from "../../src/core/playfield";
 import { demoGame } from "./game";
-import { showcaseStage } from "./patterns/stage";
+import { showcaseStage } from "./patterns/showcase";
 import type { InputFrame } from "../../src/core/input";
-import type { BossScript, StageDef } from "../../src/api";
+import type { GameDefinition, StageDef } from "../../src/api";
 
 const SEED = demoGame.seed;
 // The slice runs stage 0; its seed is mixed from the run seed exactly as the in-game
@@ -24,20 +24,24 @@ const STAGE_SEED = mixSeed(SEED, 0);
 const stage = demoGame.stages[0]!;
 const character = demoGame.characters[0]!;
 
-// The determinism run holds shoot and weaves, so it exercises the WHOLE live scene:
-// the opening enemy WAVE (spawn → the bound enemy emitters → shot-vs-enemy collision →
-// death/cull), then the boss's four phases — opening plus the three spells, including
-// the live-group-retarget (phase 3) and the beam-rake lasers (phase 4) — exercising the
-// stage root + multi-emitter scheduler, child-spawn, retarget, lasers, the per-stream
-// RNG, AND the player-shot pool + shot-vs-enemy/boss collision. The window spans through
-// the beam-rake lasers (which start ~tick 3653 now that a wave precedes the boss). NOTE:
-// the weave doesn't centre on the boss, so the boss phases TIME OUT here rather than
-// being HP-captured — that's fine, the determinism coverage of every phase is identical
-// either way (both runPhase exits are deterministic); the shot-vs-boss damage path is
-// proven separately (a centred player drains it fast). If boot feels slow, sample every
-// Nth tick in the guard — coverage holds, cost drops.
+// The determinism run holds shoot and weaves, so it exercises the WHOLE live scene
+// end to end: the opening enemy WAVES (spawn → bound enemy emitters → shot-vs-enemy
+// collision → death/cull), the MIDBOSS (both phases), the stage RESUMING when the
+// midboss falls + the post-midboss waves, then the final boss's four phases — opening
+// plus the three spells, including the live-group-retarget and the beam-rake lasers —
+// and finally the stage RETURNING (`stageComplete`). So the window covers the stage
+// root + multi-emitter scheduler, child-spawn, retarget, lasers, the per-stream RNG,
+// the player-shot pool + shot-vs-enemy/boss collision, AND the new sequential-boss
+// machinery (the awaited `ctx.boss()`, the midboss→final-boss handoff, the
+// encounter-end nulling, the stage-complete signal). NOTE: the weave doesn't centre on
+// the bosses, so every phase TIMES OUT here rather than being HP-captured — fine, the
+// determinism coverage of each is identical either way (both runPhase exits are
+// deterministic), and the DEFEAT-then-continue path (killing a boss to resume) is
+// proven separately. The scene now spans ~7770 ticks (midboss + waves precede the
+// boss), so the window is sized past it. If boot/HMR feels slow, sample every Nth tick
+// in the guard — coverage holds, cost drops.
 const scripted: InputFrame[] = [];
-const GUARD_TICKS = 4000;
+const GUARD_TICKS = 8000;
 for (let i = 0; i < GUARD_TICKS; i++) {
   scripted.push({
     dx: (i >> 3) % 2 ? 1 : -1,
@@ -92,17 +96,22 @@ if (import.meta.env.DEV) {
 
 const app = runGame(demoGame);
 
-// Hot-reload: when the boss module is edited, re-check determinism against the new
-// code (the purity invariant's edit-time tripwire), then resync the in-progress
-// stage so the scene continues with the new code. (A run started later re-reads the
-// definition's boss; this swaps the live one.) General stage-script HMR (hot-editing
-// the wave script itself) lands with the enemy/wave content.
+// Hot-reload: accept the GAME ROOT (`./game`), not the individual pattern modules.
+// Every piece of stage content — the stage/wave script, the boss, the midboss, the
+// enemy AIs — is imported (directly or transitively) by `game.ts`, which is imported
+// only here, so accepting `./game` bounds the single path and editing ANY content
+// module hot-swaps; accepting a leaf module would leave the `game.ts` import path
+// unbounded and force a full page reload (the engine's `wireContentHMR` header explains
+// why). `wireContentHMR` packages the swap+resync; `verify` keeps the determinism
+// tripwire (the game owns the seed/input/character it needs). The `accept(...)` literal
+// stays here because Vite resolves the dep string from THIS module's source.
 if (import.meta.hot) {
-  import.meta.hot.accept("./patterns/boss", (mod) => {
-    if (!mod) return;
-    const newBoss = (mod as unknown as { DEMO_BOSS: BossScript }).DEMO_BOSS;
-    assertDeterministic({ ...stage, boss: newBoss }, STAGE_SEED, scripted, DT, character);
-    asInGame(app.router.top)?.hotReloadBoss(newBoss);
-    console.info("[higan] boss hot-reloaded");
-  });
+  import.meta.hot.accept(
+    "./game",
+    wireContentHMR({
+      app,
+      getDef: (mod) => (mod as { demoGame: GameDefinition }).demoGame,
+      verify: (def) => assertDeterministic(def.stages[0]!, STAGE_SEED, scripted, DT, character),
+    }),
+  );
 }

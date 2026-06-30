@@ -7,3 +7,4 @@
 export { runGame, type AppHandle } from "./app";
 export type { Screen, Router, Shell } from "./screen";
 export { asInGame, type InGameScreen } from "./screens/ingame";
+export { wireContentHMR, type ContentHMRConfig } from "./hmr";

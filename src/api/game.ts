@@ -20,15 +20,17 @@ import type { ShotConfig } from "../touhou/shot";
 
 /**
  * One stage of a game. The `script` is the scene root: a coroutine (boss idiom) that
- * orchestrates the whole stage, calling `ctx.spawnBoss()` when it's time for the
- * boss. The `boss` is the script the stage spawns; the enemy/wave content the script
- * fires arrives with the sim economy work (#2b).
+ * orchestrates the whole stage — directing enemy waves, then `yield* ctx.boss(...)`-ing
+ * each encounter (a midboss, then the final boss) and resuming when it falls. The
+ * `boss` is the stage's headline boss, run by `ctx.boss()` with no argument (kept a
+ * named field so it can be hot-reloaded by name); a midboss is passed to `ctx.boss()`
+ * explicitly by the script.
  */
 export interface StageDef {
   readonly id: string;
   /** The stage's scene-root coroutine. */
   readonly script: StageScript;
-  /** The boss this stage spawns (via `ctx.spawnBoss()`), if any. */
+  /** The stage's headline boss, run by `ctx.boss()` with no argument, if any. */
   readonly boss?: BossScript;
 }
 

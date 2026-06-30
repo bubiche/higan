@@ -36,7 +36,7 @@ import {
   type RunningEmitter,
   type Vec2,
 } from "../api/emitter";
-import { startBoss, type BossDeps, type PhaseSpec } from "../api/boss";
+import { startBoss, type BossDeps, type PhaseSpec, type BossScript } from "../api/boss";
 import { startStage, type StageDeps, type EnemySpec } from "../api/stage";
 import type { StageDef, CharacterDef } from "../api/game";
 import { PLAYFIELD_W, PLAYFIELD_H } from "./playfield";
@@ -101,8 +101,6 @@ export interface BossState {
   timeLimit: number;
   /** This phase is a spell card (vs an ordinary phase). */
   isSpell: boolean;
-  /** The boss coroutine has run out of phases — the boss is beaten. */
-  defeated: boolean;
 }
 
 export interface Simulation {
@@ -121,9 +119,14 @@ export interface Simulation {
   readonly player: Readonly<Player>;
   /** Name of the currently-running scene element (boss phase, or the stage). */
   readonly patternName: string;
-  /** Boss/spell-card state, or null until the stage spawns the boss. Read-only — the
-   *  HUD displays it and keeps no counters of its own. */
+  /** Boss/spell-card state while a boss is on the field (midboss or final), or null
+   *  between encounters and before the first. Read-only — the HUD displays it and
+   *  keeps no counters of its own. */
   readonly boss: Readonly<BossState> | null;
+  /** The stage script has returned — the scene is over (its waves, midboss, and final
+   *  boss are all done). This, not any single boss's defeat, is the run-end signal: a
+   *  midboss falling resumes the stage rather than ending the run. */
+  readonly stageComplete: boolean;
   /** Advance the simulation by exactly one fixed step, given this tick's input. */
   step(input: InputFrame): void;
   /** Bit-level fingerprint of the current state (live slots only). */
@@ -208,9 +211,15 @@ export function createStageSim(
     timeLeft: 0,
     timeLimit: 0,
     isSpell: false,
-    defeated: false,
   };
   let nextGroupId = 1;
+  // The boss currently on the field (midboss or final), or null between encounters.
+  // A stage may run several bosses in sequence; each spawn replaces this, and it is
+  // nulled when an encounter ends so the HUD gauge / shot-vs-boss only apply while a
+  // boss is live. (Sequential bosses share the protected boss stream — an earlier
+  // boss's lifetime advances `rngBoss`, the same intra-stream coupling that already
+  // exists across a single boss's phases. F4 — boss stream ⊥ enemy stream — is
+  // unaffected; per-encounter sub-streams are deferred, no consumer yet.)
   let bossRoot: RunningEmitter | null = null;
 
   const bossDeps: BossDeps = {
@@ -242,13 +251,20 @@ export function createStageSim(
     captured: () => player.spellCapturedNoMiss,
   };
 
-  // The stage's `spawnBoss` hook: create the boss on the boss stream as a mid-run
-  // child (resuming next tick, like any spawned child), and track it for HP-drain +
-  // defeat detection. A no-op if the stage defines no boss, or if already spawned.
-  const spawnBoss = (): void => {
-    if (!stageDef.boss || bossRoot) return;
-    bossRoot = startBoss(stageDef.boss, BOSS_ORIGIN_X, BOSS_ORIGIN_Y, tick + 1, bossDeps);
+  // The stage's `spawnBoss` hook: create a boss on the protected boss stream as a
+  // mid-run child (resuming next tick, like any spawned child), track it for HP-drain
+  // + defeat, and return its root so the stage can await `done`. The stage may call
+  // this several times in sequence (midboss, then the final boss) — each call replaces
+  // `bossRoot` and resets the phase state; the stage's `boss()` await guarantees the
+  // previous encounter is over first. `script` overrides the stage's headline boss
+  // (`stageDef.boss`); with neither, there is no boss to spawn (null).
+  const spawnBoss = (script?: BossScript): RunningEmitter | null => {
+    const bossScript = script ?? stageDef.boss;
+    if (!bossScript) return null;
+    bossState.active = false;
+    bossRoot = startBoss(bossScript, BOSS_ORIGIN_X, BOSS_ORIGIN_Y, tick + 1, bossDeps);
     running.push(bossRoot);
+    return bossRoot;
   };
 
   // Spawn an enemy: allocate a struct slot, then bind a root emitter to it on the
@@ -284,8 +300,11 @@ export function createStageSim(
   };
 
   // The stage script is the scene root (R3). Started at construction so it begins on
-  // tick 0; it spawns the boss (and, from #2b, waves) as the stage progresses.
-  running.push(startStage(stageDef.script, BOSS_ORIGIN_X, 0, 0, stageDeps));
+  // tick 0; it directs the waves, runs the midboss and final boss, and returns when the
+  // stage is over. Its `done` is the run-end signal (`stageComplete`) — a boss falling
+  // resumes it, only its return ends the scene.
+  const stageRoot = startStage(stageDef.script, BOSS_ORIGIN_X, 0, 0, stageDeps);
+  running.push(stageRoot);
 
   // Step every emitter due this tick, then drop the finished ones. The length is
   // captured BEFORE the loop so a child spawned this tick (appended past the end)
@@ -355,8 +374,8 @@ export function createStageSim(
   const rngStateU32 = new Uint32Array(8);
   const rngStateView = new Float32Array(rngStateU32.buffer);
   // Scalar block: sim/scene/laser state (0-7), the full player struct (8-17),
-  // boss/spell state (18-22), the player-shot live count (23), the enemy live
-  // count (24).
+  // boss/spell state (18-21), the stage-complete flag (22), the player-shot live
+  // count (23), the enemy live count (24).
   const scalars = new Float32Array(25);
 
   const step = (input: InputFrame): void => {
@@ -376,7 +395,14 @@ export function createStageSim(
     //    advance through the same scheduler array. The stage drives the scene; the
     //    boss is a mid-run child it spawns.
     stepRunning();
-    if (bossRoot && bossRoot.done) bossState.defeated = true;
+    // An encounter ends when its boss coroutine returns; null `bossRoot` so the HUD
+    // gauge and shot-vs-boss stop until the stage spawns the next boss (if any). The
+    // stage's `boss()` await polls the root's own `done`, so it resumes independently
+    // of this pointer being cleared.
+    if (bossRoot && bossRoot.done) {
+      bossState.active = false;
+      bossRoot = null;
+    }
     // The phase TIMER evolves here (tick-driven); the coroutine only reads hp/timer
     // to decide transitions. HP is drained by player shots LANDING (step 5b).
     if (bossRoot && bossState.active && bossState.timeLeft > 0) bossState.timeLeft--;
@@ -559,7 +585,7 @@ export function createStageSim(
     scalars[19] = bossState.timeLeft;
     scalars[20] = nextGroupId;
     scalars[21] = bossState.active ? 1 : 0;
-    scalars[22] = bossState.defeated ? 1 : 0;
+    scalars[22] = stageRoot.done ? 1 : 0;
     scalars[23] = shots.liveCount;
     scalars[24] = enemies.liveCount;
     return hashFloat32Arrays([
@@ -610,13 +636,14 @@ export function createStageSim(
     enemies,
     player,
     get patternName() {
-      if (bossRoot) {
-        return bossState.active ? bossState.name : bossState.defeated ? "defeated" : "—";
-      }
-      return "stage";
+      if (bossRoot) return bossState.active ? bossState.name : "—";
+      return stageRoot.done ? "complete" : "stage";
     },
     get boss() {
       return bossRoot ? bossState : null;
+    },
+    get stageComplete() {
+      return stageRoot.done;
     },
     step,
     hash,

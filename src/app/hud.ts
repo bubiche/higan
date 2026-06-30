@@ -62,13 +62,14 @@ export function createHud(panel: HTMLElement): Hud {
       const stateLabel = STATE_LABELS[player.state] ?? "?";
       lines.push(`state   ${stateLabel}${player.invulnTicks > 0 ? ` (inv ${player.invulnTicks})` : ""}`);
 
+      // `sim.boss` is non-null only while a boss is on the field (midboss or final);
+      // it clears between encounters, so there's no defeated state to show here — the
+      // run ends from `stageComplete`, not a boss's defeat.
       const boss = sim.boss;
       if (boss) {
         lines.push("");
         lines.push("── boss ──");
-        if (boss.defeated) {
-          lines.push("✦ DEFEATED ✦");
-        } else if (boss.active) {
+        if (boss.active) {
           const ratio = boss.hpMax > 0 ? boss.hp / boss.hpMax : 0;
           lines.push(`spell   ${boss.name}${boss.isSpell ? "  ✦" : ""}`);
           lines.push(`hp      [${gauge(ratio)}] ${Math.ceil(boss.hp)}`);

@@ -26,6 +26,10 @@ import type { GameDefinition } from "../api/game";
 export interface AppHandle {
   readonly router: Router;
   readonly input: ShellInput;
+  /** Replace the running game definition (dev HMR). Screens read `shell.def` fresh, so
+   *  the next-built screen — and the live in-game screen on its next rebuild/resync —
+   *  use the new content. A no-op to gameplay until something rebuilds. */
+  reloadDef(def: GameDefinition): void;
   /** Stop the loop and release the keyboard source. */
   stop(): void;
 }
@@ -35,6 +39,11 @@ export function runGame(def: GameDefinition): AppHandle {
   const overlay = document.getElementById("overlay") as HTMLElement;
   const sidebar = document.getElementById("sidebar") as HTMLElement;
   const gl = createGL(canvas);
+
+  // The live game definition. Mutable so dev HMR can swap in freshly-imported content
+  // (via the returned `reloadDef`); the shell exposes it as a getter so every screen
+  // reads the current one. Stable in production (HMR is dev-only).
+  let currentDef = def;
 
   // Load persisted settings BEFORE the first resize so the saved display scale is
   // applied on boot, not after a flash at the default.
@@ -69,7 +78,9 @@ export function runGame(def: GameDefinition): AppHandle {
     input,
     bullets,
     lasers,
-    def,
+    get def(): GameDefinition {
+      return currentDef;
+    },
     save,
     get router(): Router {
       return router;
@@ -96,6 +107,9 @@ export function runGame(def: GameDefinition): AppHandle {
   return {
     router,
     input,
+    reloadDef(next: GameDefinition): void {
+      currentDef = next;
+    },
     stop(): void {
       loop.stop();
       window.removeEventListener("resize", resize);

@@ -85,9 +85,12 @@ const isoStage: StageScript = function* (ctx) {
       color: [1, 1, 1],
     });
   }
-  ctx.spawnBoss();
-  // The stage root has done its job; returning removes it from the scheduler. The
-  // spawned enemies and boss run on independently.
+  // Run the boss to its end. Its hp/timer dwarf the window so it never falls here, so
+  // the stage simply parks in the await loop for the whole run — making zero rng draws
+  // (it never perturbs either stream), so the boss store stays a pure function of
+  // (rngBoss, tick). The boss spawns on the same tick a bare spawn would, so the
+  // fingerprint is unchanged by awaiting it.
+  yield* ctx.boss();
 };
 
 const ISO_STAGE: StageDef = { id: "stream-isolation", script: isoStage, boss: isoBoss };
