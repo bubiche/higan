@@ -44,7 +44,15 @@ export function asInGame(screen: Screen): InGameScreen | null {
     : null;
 }
 
-export function createInGameScreen(shell: Shell): InGameScreen {
+/**
+ * Build the in-game screen. `continuesUsed` is run-level meta carried ABOVE the sim
+ * (each stage sim is a fresh rebuild): a fresh run (title Start / pause Retry) passes 0;
+ * a continue passes the prior count + 1, so the continue prompt can bound the choice and
+ * a continue's fresh sim already resets score/lives (createPlayer defaults). It lives
+ * here — threaded through the screen constructors — rather than in a RunController/
+ * RunState; that struct is born at the cross-stage pass, where it also absorbs this field.
+ */
+export function createInGameScreen(shell: Shell, continuesUsed = 0): InGameScreen {
   const { sidebar, input, bullets, lasers, def } = shell;
   const character = def.characters[0]!;
   // The slice runs the first stage as stage 0 of the run. The driver is seeded with
@@ -168,8 +176,9 @@ export function createInGameScreen(shell: Shell): InGameScreen {
     ended = true;
     if (outcome === "gameover") {
       // Push (not replace) so the frozen death moment shows behind the prompt; the
-      // continue choice then either rebuilds the run or falls through to results.
-      shell.router.push(createContinueScreen(shell));
+      // continue choice then either rebuilds the run (carrying the continue count) or
+      // falls through to results.
+      shell.router.push(createContinueScreen(shell, continuesUsed));
     } else {
       // Clear: hand the final score (read off the sim) to results. The game-over path
       // goes through the continue prompt instead and carries no score.

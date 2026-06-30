@@ -37,6 +37,13 @@ export const PIV_MIN_FACTOR = 0.25;
 // ── Graze / bonuses / extends ─────────────────────────────────────────────────────
 /** Score per graze (a near-miss). */
 export const GRAZE_SCORE = 500;
+/** Flat score per bullet removed by a cancel (a spell capture / phase transition /
+ *  boss defeat / bomb clearing the field). An immediate, capacity-independent reward;
+ *  the capped point-item shower the cancel ALSO drops scores separately, on collection
+ *  (the sim owns the shower + its cap). Deliberately small so a captured spell's bonus
+ *  stays the headline reward: cancelling a 1000-bullet field pays 100k direct here vs.
+ *  the up-to-2M capture bonus, and the shower (≤ cap × PIV × height) rides on top. */
+export const CANCEL_SCORE = 100;
 /** Spell-capture bonus at zero elapsed time; declines as the phase runs. */
 export const SPELL_BONUS_BASE = 2_000_000;
 /** Spell-bonus lost per tick the phase runs before capture. */
@@ -66,6 +73,15 @@ export function awardPointItem(player: Player, heightFactor: number): void {
 /** Award score for `count` grazes this tick (the sim passes the per-tick delta). */
 export function awardGraze(player: Player, count: number): void {
   player.score += count * GRAZE_SCORE;
+}
+
+/** Award the flat cancel bonus for `count` bullets removed by a field clear this tick
+ *  (capture / phase transition / boss defeat / bomb). Integer by construction. The
+ *  capped point-item shower the cancel also spawns is scored separately, on collection
+ *  (`awardPointItem`), so this is just the immediate per-bullet reward — the sim owns
+ *  the shower. Pure of randomness; folds into the hash via `score`. */
+export function awardCancel(player: Player, count: number): void {
+  player.score += count * CANCEL_SCORE;
 }
 
 /**

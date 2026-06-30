@@ -2,24 +2,37 @@
 //
 // Pushed over the in-game screen so the frozen death moment shows behind it (same
 // flow-pause mechanic as the pause menu). The player chooses to continue the run or
-// give up to the results screen. "Continue" here is a plain rebuild of the run; the
-// real economy — limited continues that reset score and restore lives, and the
-// recorded continue-decision that the per-run replay needs — arrives with run-state.
-// The continue/give-up choice is a genuine player decision (not derivable from sim
-// state), which is exactly why the design note records it as replay meta-input later.
+// give up to the results screen. Continues are LIMITED (MAX_CONTINUES per run): each
+// continue rebuilds the run, which on a fresh sim resets score and restores lives/bombs
+// to the start-of-stage defaults (createPlayer) — exactly the "reset score + restored
+// lives" economy — and advances the run's continue count so the prompt collapses to
+// give-up-only once they're spent. The count is run-level meta threaded above the sim;
+// it absorbs into RunState at the cross-stage pass, where the continue/give-up DECISION
+// also becomes recorded per-run-replay meta-input (a genuine player choice, not
+// derivable from sim state). Resetting score on a fresh sim already falls out for free.
 
 import type { Screen, Shell } from "../screen";
-import { createMenu, type Menu } from "../menu";
+import { createMenu, type Menu, type MenuItem } from "../menu";
 import { createInGameScreen } from "./ingame";
 import { createResultsScreen } from "./results";
 
-export function createContinueScreen(shell: Shell): Screen {
+/** Continues allowed per run. LITMUS: hardcoded here for now (one consumer); graduates
+ *  to the game-level RunConfig (alongside the score.ts / item.ts economy constants) at
+ *  the run-params pass, with this value as the default. */
+const MAX_CONTINUES = 3;
+
+/** `continuesUsed` is how many continues this run has already spent (0 on the first
+ *  game-over). Threaded in by the in-game screen, which carries it across the rebuild. */
+export function createContinueScreen(shell: Shell, continuesUsed = 0): Screen {
   const { overlay, input, router } = shell;
+  const remaining = MAX_CONTINUES - continuesUsed;
   let menu: Menu;
 
   const doContinue = (): void => {
     router.pop(); // remove this prompt…
-    router.replace(createInGameScreen(shell)); // …and rebuild the run
+    // …and rebuild the run. The fresh sim resets score + restores lives/bombs; the
+    // incremented count means the next game-over offers one fewer continue.
+    router.replace(createInGameScreen(shell, continuesUsed + 1));
   };
   const giveUp = (): void => {
     router.pop();
@@ -29,14 +42,17 @@ export function createContinueScreen(shell: Shell): Screen {
   return {
     enter(): void {
       input.flush();
+      // Offer Continue only while continues remain; otherwise it's give-up-only.
+      const items: MenuItem[] = [];
+      if (remaining > 0) {
+        items.push({ kind: "action", label: `Continue  (${remaining} left)`, onConfirm: doContinue });
+      }
+      items.push({ kind: "action", label: "Give up", onConfirm: giveUp });
       menu = createMenu(overlay, {
         title: "GAME OVER",
-        hint: "↑/↓ select · Z confirm",
+        hint: remaining > 0 ? "↑/↓ select · Z confirm" : "No continues left · Z to end",
         onCancel: giveUp,
-        items: [
-          { kind: "action", label: "Continue", onConfirm: doContinue },
-          { kind: "action", label: "Give up", onConfirm: giveUp },
-        ],
+        items,
       });
     },
     exit(): void {
