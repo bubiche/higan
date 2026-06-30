@@ -37,6 +37,13 @@ export { ItemType, type ItemDropTable } from "../touhou/item";
 
 export { defineGame, type GameDefinition, type StageDef, type CharacterDef } from "./game";
 
+export {
+  DEFAULT_RUN_CONFIG,
+  type RunConfig,
+  type ScoringConfig,
+  type ItemConfig,
+} from "./config";
+
 export { DEFAULT_SHOT_CONFIG, type ShotConfig } from "../touhou/shot";
 
 export {

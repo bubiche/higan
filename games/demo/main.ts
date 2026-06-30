@@ -55,7 +55,7 @@ for (let i = 0; i < GUARD_TICKS; i++) {
 // Continuous determinism guard: same stage + seed + scripted input + character,
 // twice, must hash identically. The scripted input holds shoot, so player shots fire,
 // damage the boss, and fold into the trajectory hash.
-const det = assertDeterministic(stage, STAGE_SEED, scripted, DT, character);
+const det = assertDeterministic(stage, STAGE_SEED, scripted, DT, character, demoGame.config);
 console.info(
   `[higan] determinism OK (stage ${stage.id}) — hash 0x${det.hashA
     .toString(16)
@@ -77,7 +77,7 @@ for (let i = 0; i < PATTERN_TICKS * 13; i++) {
     bomb: false,
   });
 }
-assertDeterministic(showcaseStageDef, STAGE_SEED, showcaseScript, DT, character);
+assertDeterministic(showcaseStageDef, STAGE_SEED, showcaseScript, DT, character, demoGame.config);
 
 // Engine-seam self-test (DEV only — dead-stripped from the production bundle, where
 // a player can't introduce a stream-crossing bug): the boss's danmaku stream is
@@ -111,7 +111,7 @@ if (import.meta.hot) {
     wireContentHMR({
       app,
       getDef: (mod) => (mod as { demoGame: GameDefinition }).demoGame,
-      verify: (def) => assertDeterministic(def.stages[0]!, STAGE_SEED, scripted, DT, character),
+      verify: (def) => assertDeterministic(def.stages[0]!, STAGE_SEED, scripted, DT, character, def.config),
     }),
   );
 }

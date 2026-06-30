@@ -46,6 +46,7 @@ import {
 import { startBoss, type BossDeps, type PhaseSpec, type BossScript } from "../api/boss";
 import { startStage, type StageDeps, type EnemySpec } from "../api/stage";
 import type { StageDef, CharacterDef } from "../api/game";
+import type { RunConfig } from "../api/config";
 import { PLAYFIELD_W, PLAYFIELD_H } from "./playfield";
 import type { InputFrame } from "./input";
 import {
@@ -77,6 +78,8 @@ export const ENEMY_CAPACITY = 64;
 /** Item-pool capacity (the renderer + hash scratch size to match). NOTE: a future
  *  bullet-cancel shower can spawn far more — bump this (or aggregate value) there. */
 export const ITEM_CAPACITY = 256;
+/** Item-pool capacity is fixed (the cancel cap is the real shower bound); the per-item
+ *  physics, drop kinematics, and cancel cap are run-config (`config.item`). */
 const CULL_MARGIN = 16;
 /** Off-field margin past which an enemy is culled. Generous — enemies enter from
  *  above the field, so this must clear their spawn point (the tight bullet
@@ -85,19 +88,6 @@ const ENEMY_CULL_MARGIN = 96;
 /** Boss collision radius — the disc player shots damage. A constant for the demo
  *  (the boss origin is static); a per-boss hitbox/position is a content seam later. */
 const BOSS_HIT_RADIUS = 22;
-/** Item-drop spawn kinematics — the upward "pop" speed + its item-stream scatter at
- *  spawn; the in-flight fall/magnet/collect live in touhou/item.ts. (LITMUS: tuning,
- *  promote to config alongside item.ts's constants at the slice gate.) */
-const ITEM_POP_VY = 90;
-const ITEM_POP_SCATTER_X = 35;
-const ITEM_POP_SCATTER_VY = 25;
-/** Bullet-cancel → point-item shower cap: at most this many of the cancelled bullets
- *  also leave a Point item (the rest only pay the flat cancel score). The cap is the
- *  BOUND the design note asks for — it keeps a thousand-bullet field clear from spiking
- *  the item pool (which also drops-when-full behind it). Kept small so the collectable
- *  shower (each worth PIV × height) doesn't dwarf the capture bonus. (LITMUS: tuning,
- *  promote to run-config alongside the score.ts / item.ts constants at the slice gate.) */
-const CANCEL_ITEM_CAP = 16;
 
 /** RNG-stream ids. Each stream derives an independent generator from the stage seed
  *  (`mixSeed(stageSeed, id)`). The boss stream is protected from the enemy stream's
@@ -164,10 +154,14 @@ export function createStageSim(
   stageDef: StageDef,
   stageSeed: number,
   character: CharacterDef,
+  runConfig: RunConfig,
   dt: number,
 ): Simulation {
   const config = character.config;
   const shot = character.shot ?? DEFAULT_SHOT_CONFIG;
+  // The run's economy/physics tuning (scoring + item), construction input (not hashed).
+  const scoring = runConfig.scoring;
+  const itemCfg = runConfig.item;
   // Power ceiling: the level past which more power buys no extra shot streams. Derived
   // from the shot config (it IS where streams cap), so it needs no separate knob — a
   // FullPower item jumps here and a Power item past it converts to a point. (LITMUS:
@@ -194,6 +188,7 @@ export function createStageSim(
   const items = createItemSystem(
     { width: PLAYFIELD_W, height: PLAYFIELD_H, margin: CULL_MARGIN },
     ITEM_CAPACITY,
+    itemCfg,
   );
 
   // Spawn / respawn position — the bottom-centre start. A constant (not hashed),
@@ -204,7 +199,7 @@ export function createStageSim(
   // the disc player shots damage.
   const BOSS_ORIGIN_X = PLAYFIELD_W / 2;
   const BOSS_ORIGIN_Y = PLAYFIELD_H * 0.16;
-  const player = createPlayer(config, START_X, START_Y);
+  const player = createPlayer(config, START_X, START_Y, scoring.pivBase);
   // The shared aim/home target. A stable object that views the player position:
   // emitters and the bullet update loop read it each tick; we mutate its fields in
   // place rather than replacing it.
@@ -289,7 +284,7 @@ export function createStageSim(
       // timed-out or ordinary phase does not. Gameplay (it can trigger an extend) →
       // hashed, zero RNG. The declining-with-time bonus lives in score.ts.
       if (captured && bossState.isSpell) {
-        awardSpellCapture(player, bossState.timeLeft, bossState.timeLimit);
+        awardSpellCapture(player, bossState.timeLeft, bossState.timeLimit, scoring);
       }
       for (const em of running) if (em.group === group) em.done = true;
       bossState.active = false;
@@ -359,8 +354,8 @@ export function createStageSim(
         type,
         x: ex,
         y: ey,
-        vx: rngItem.range(-ITEM_POP_SCATTER_X, ITEM_POP_SCATTER_X),
-        vy: -ITEM_POP_VY + rngItem.range(-ITEM_POP_SCATTER_VY, ITEM_POP_SCATTER_VY),
+        vx: rngItem.range(-itemCfg.popScatterX, itemCfg.popScatterX),
+        vy: -itemCfg.popVy + rngItem.range(-itemCfg.popScatterVy, itemCfg.popScatterVy),
         sprite: vis.sprite,
         r: vis.color[0],
         g: vis.color[1],
@@ -407,7 +402,7 @@ export function createStageSim(
         // Spawn at the bullet's position with zero velocity (it then falls / magnets /
         // attracts like any item). First-cap rather than spread — the visible spread is
         // a presentation concern (the M8 sparkle), not gameplay.
-        if (spawned < CANCEL_ITEM_CAP) {
+        if (spawned < itemCfg.cancelItemCap) {
           items.spawn({
             type: ItemType.Point,
             x: store.x[i]!,
@@ -422,7 +417,7 @@ export function createStageSim(
           spawned++;
         }
       }
-      if (n > 0) awardCancel(player, n);
+      if (n > 0) awardCancel(player, n, scoring);
     }
     system.clear();
   };
@@ -556,7 +551,7 @@ export function createStageSim(
     //     trigger an extend. Gated on a live player so a boss timing out after a
     //     game-over can't pay a clear bonus.
     if (!prevStageComplete && stageRoot.done && player.state !== PlayerState.GameOver) {
-      awardStageClear(player);
+      awardStageClear(player, scoring);
     }
     prevStageComplete = stageRoot.done;
     // An encounter ends when its boss coroutine returns; null `bossRoot` so the HUD
@@ -639,7 +634,7 @@ export function createStageSim(
     //    the collision loop, which stays a pure graze/hit pass.
     const grazeBefore = player.graze;
     const { hit } = stepCollision(player, system, lasers, config);
-    if (player.graze > grazeBefore) awardGraze(player, player.graze - grazeBefore);
+    if (player.graze > grazeBefore) awardGraze(player, player.graze - grazeBefore, scoring);
     // 7. Death/bomb lifecycle consumes the hit. A bomb (or deathbomb) clears the
     //    field; the clear is done here so the lifecycle step stays free of the
     //    bullet/laser systems.
@@ -659,12 +654,12 @@ export function createStageSim(
     //    auto-attracts the whole field. ZERO RNG (the scatter was drawn at drop time).
     const fullPower = MAX_POWER > 0 && player.power >= MAX_POWER;
     items.update(dt, player.x, player.y, fullPower);
-    stepItemCollection(items, player, MAX_POWER);
+    stepItemCollection(items, player, MAX_POWER, scoring, itemCfg);
 
     // 9. Extends: every score-threshold the run has crossed this tick grants a life.
     //    Runs last, after every award this tick (point items, graze, spell capture,
     //    stage clear) has landed in `score`. Bounded by the threshold list; zero RNG.
-    applyExtends(player);
+    applyExtends(player, scoring);
 
     tick++;
   };

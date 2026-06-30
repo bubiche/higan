@@ -20,7 +20,7 @@
 // the asset slot at the presentation milestone with no change to this path.
 
 import { PlayerState, type Player } from "./player";
-import { awardPointItem, PIV_MIN_FACTOR } from "./score";
+import { awardPointItem, type ScoringConfig } from "./score";
 import { Shape } from "../render/shapes";
 import { PLAYFIELD_H } from "../core/playfield";
 
@@ -57,30 +57,59 @@ export interface ItemDropTable {
   readonly fullPower?: number;
 }
 
-// ── Physics + collection tuning (engine constants for now) ─────────────────────
-// LITMUS NOTE (slice-gate): these are hardcoded in `src/`, so a game that wants a
-// different PoC height, magnet reach, or power-per-item needs a src/ edit — which
-// fails the "second game with zero src/ changes" litmus. They start as constants
-// (one consumer, extract-at-seam discipline) and should be promoted to run-config /
-// the drop spec at the litmus review. Per-item gameplay VALUES (power-per-item, the
-// big/small-power split) are content too — flagged, not built, for #3.
+// ── Physics + collection tuning ────────────────────────────────────────────────
+// Promoted to a game-level RunConfig field (`RunConfig.item`, composed in
+// api/config.ts): a game tunes the PoC height, magnet reach, power-per-item, drop
+// kinematics, and the bullet-cancel item cap with zero engine edit (the "second game,
+// zero src/ changes" litmus). Construction input — the values feed deterministic item
+// physics but the object is not hashed. `DEFAULT_ITEM_CONFIG` carries the reference
+// values. The drop-pop kinematics (`popVy`/`popScatter*`) and `cancelItemCap` are read
+// by the SIM (it owns drop spawning + the bullet-cancel transform); the rest are read
+// here (fall/magnet/collect physics + the collection effect).
 
-/** Player above this y (near the top) auto-collects every item — the Point of
- *  Collection that rewards risky play. */
-const POC_LINE = PLAYFIELD_H * 0.28;
-/** Downward acceleration on a falling item (sim units / s²). */
-const GRAVITY = 360;
-/** Fall-speed cap (sim units / s). */
-const TERMINAL_VY = 150;
-/** Within this distance of the player, a falling item starts homing (the magnet). */
-const MAGNET_RADIUS = 60;
-/** Homing speed once attracting (faster than the player so it always catches up). */
-const ATTRACT_SPEED = 520;
-/** Within this distance of the player, an item is collected. */
-const COLLECT_RADIUS = 14;
-/** Power gained per Power item (on the character's power scale; overflow past max
- *  converts to a point). */
-const POWER_PER_ITEM = 4;
+/** Item physics, collection, and drop/cancel tuning. */
+export interface ItemConfig {
+  /** PoC line as a fraction of field height: a player above `PLAYFIELD_H * pocLineFrac`
+   *  (near the top) auto-collects every item — the Point of Collection that rewards
+   *  risky play. Also the boundary the point-item height-factor scales from. */
+  readonly pocLineFrac: number;
+  /** Downward acceleration on a falling item (sim units / s²). */
+  readonly gravity: number;
+  /** Fall-speed cap (sim units / s). */
+  readonly terminalVy: number;
+  /** Within this distance of the player, a falling item starts homing (the magnet). */
+  readonly magnetRadius: number;
+  /** Homing speed once attracting (faster than the player so it always catches up). */
+  readonly attractSpeed: number;
+  /** Within this distance of the player, an item is collected. */
+  readonly collectRadius: number;
+  /** Power gained per Power item (overflow past max converts to a point). */
+  readonly powerPerItem: number;
+  /** Drop-pop upward speed (sim-owned spawn kinematics). */
+  readonly popVy: number;
+  /** Drop-pop horizontal scatter half-range (sim-owned). */
+  readonly popScatterX: number;
+  /** Drop-pop vertical scatter half-range (sim-owned). */
+  readonly popScatterVy: number;
+  /** Bullet-cancel → point-item shower cap (sim-owned): at most this many cancelled
+   *  bullets also leave a Point item; the rest only pay the flat cancel score. */
+  readonly cancelItemCap: number;
+}
+
+/** The reference game's item values (the engine's defaults). */
+export const DEFAULT_ITEM_CONFIG: ItemConfig = {
+  pocLineFrac: 0.28,
+  gravity: 360,
+  terminalVy: 150,
+  magnetRadius: 60,
+  attractSpeed: 520,
+  collectRadius: 14,
+  powerPerItem: 4,
+  popVy: 90,
+  popScatterX: 35,
+  popScatterVy: 25,
+  cancelItemCap: 16,
+};
 
 /** A single item. Mutated in place inside its pool slot. */
 export interface Item {
@@ -159,13 +188,15 @@ export interface ItemBounds {
   margin: number;
 }
 
-export function createItemSystem(bounds: ItemBounds, capacity = 256): ItemSystem {
+export function createItemSystem(bounds: ItemBounds, capacity = 256, cfg: ItemConfig = DEFAULT_ITEM_CONFIG): ItemSystem {
   const pool: Item[] = [];
   for (let i = 0; i < capacity; i++) {
     pool.push({ alive: false, type: 0, x: 0, y: 0, vx: 0, vy: 0, state: ItemState.Falling, age: 0, sprite: 0, r: 0, g: 0, b: 0 });
   }
   let liveCount = 0;
   const { width, height, margin } = bounds;
+  // Resolved once (POC line is a fraction of field height); used by `update` below.
+  const pocY = PLAYFIELD_H * cfg.pocLineFrac;
 
   return {
     items: pool,
@@ -201,8 +232,8 @@ export function createItemSystem(bounds: ItemBounds, capacity = 256): ItemSystem
       liveCount--;
     },
     update(dt, px, py, forceAttract): void {
-      const attract = forceAttract || py < POC_LINE;
-      const magnet2 = MAGNET_RADIUS * MAGNET_RADIUS;
+      const attract = forceAttract || py < pocY;
+      const magnet2 = cfg.magnetRadius * cfg.magnetRadius;
       for (let i = 0; i < pool.length; i++) {
         const it = pool[i];
         if (!it.alive) continue;
@@ -219,12 +250,12 @@ export function createItemSystem(bounds: ItemBounds, capacity = 256): ItemSystem
           const dx = px - it.x;
           const dy = py - it.y;
           const d = Math.sqrt(dx * dx + dy * dy) || 1;
-          it.vx = (dx / d) * ATTRACT_SPEED;
-          it.vy = (dy / d) * ATTRACT_SPEED;
+          it.vx = (dx / d) * cfg.attractSpeed;
+          it.vy = (dy / d) * cfg.attractSpeed;
         } else {
           // Falling: gravity, capped at terminal. Horizontal pop-scatter persists.
-          it.vy += GRAVITY * dt;
-          if (it.vy > TERMINAL_VY) it.vy = TERMINAL_VY;
+          it.vy += cfg.gravity * dt;
+          if (it.vy > cfg.terminalVy) it.vy = cfg.terminalVy;
         }
         it.x += it.vx * dt;
         it.y += it.vy * dt;
@@ -257,17 +288,23 @@ export function createItemSystem(bounds: ItemBounds, capacity = 256): ItemSystem
  * `maxPower` is the character's power ceiling (derived from its shot config by the
  * sim). A Power item past the ceiling converts to a point; FullPower jumps to it.
  */
-export function stepItemCollection(items: ItemSystem, player: Player, maxPower: number): void {
+export function stepItemCollection(
+  items: ItemSystem,
+  player: Player,
+  maxPower: number,
+  scoring: ScoringConfig,
+  itemCfg: ItemConfig,
+): void {
   if (player.state === PlayerState.GameOver) return;
   const pool = items.items;
-  const r2 = COLLECT_RADIUS * COLLECT_RADIUS;
+  const r2 = itemCfg.collectRadius * itemCfg.collectRadius;
   for (let i = 0; i < pool.length; i++) {
     const it = pool[i];
     if (!it.alive) continue;
     const dx = it.x - player.x;
     const dy = it.y - player.y;
     if (dx * dx + dy * dy > r2) continue;
-    applyItem(it.type, player, maxPower);
+    applyItem(it.type, player, maxPower, scoring, itemCfg);
     items.despawn(i);
   }
 }
@@ -276,22 +313,29 @@ export function stepItemCollection(items: ItemSystem, player: Player, maxPower: 
  *  at or above the PoC line is worth full PIV (factor 1); below, the value scales
  *  down to `PIV_MIN_FACTOR` at the field bottom. Collection homes the item onto the
  *  player, so `y` is the player's y — the height at which it was grabbed. */
-function pocHeightFactor(y: number): number {
-  if (y <= POC_LINE) return 1;
-  const t = (y - POC_LINE) / (PLAYFIELD_H - POC_LINE); // 0 at the line, 1 at the bottom
-  const factor = 1 - t * (1 - PIV_MIN_FACTOR);
-  return factor < PIV_MIN_FACTOR ? PIV_MIN_FACTOR : factor;
+function pocHeightFactor(y: number, itemCfg: ItemConfig, scoring: ScoringConfig): number {
+  const pocLine = PLAYFIELD_H * itemCfg.pocLineFrac;
+  if (y <= pocLine) return 1;
+  const t = (y - pocLine) / (PLAYFIELD_H - pocLine); // 0 at the line, 1 at the bottom
+  const factor = 1 - t * (1 - scoring.pivMinFactor);
+  return factor < scoring.pivMinFactor ? scoring.pivMinFactor : factor;
 }
 
 /** Apply one collected item to the player. Pure; the caller despawns the item. */
-function applyItem(type: ItemType, player: Player, maxPower: number): void {
+function applyItem(
+  type: ItemType,
+  player: Player,
+  maxPower: number,
+  scoring: ScoringConfig,
+  itemCfg: ItemConfig,
+): void {
   switch (type) {
     case ItemType.Power:
       if (player.power >= maxPower) {
         // Overflow past max power converts to a point (scored by collection height).
-        awardPointItem(player, pocHeightFactor(player.y));
+        awardPointItem(player, pocHeightFactor(player.y, itemCfg, scoring), scoring);
       } else {
-        player.power = Math.min(maxPower, player.power + POWER_PER_ITEM);
+        player.power = Math.min(maxPower, player.power + itemCfg.powerPerItem);
       }
       break;
     case ItemType.FullPower:
@@ -304,7 +348,7 @@ function applyItem(type: ItemType, player: Player, maxPower: number): void {
       player.bombs++;
       break;
     case ItemType.Point:
-      awardPointItem(player, pocHeightFactor(player.y));
+      awardPointItem(player, pocHeightFactor(player.y, itemCfg, scoring), scoring);
       break;
   }
 }

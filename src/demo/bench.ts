@@ -33,6 +33,7 @@ import {
   PlayerState,
   DEFAULT_PLAYER_CONFIG,
 } from "../touhou/player";
+import { DEFAULT_SCORING } from "../touhou/score";
 import { stepCollision } from "../touhou/collision";
 import { Rng } from "../core/prng";
 import { MAX_BULLETS } from "../bullets/store";
@@ -88,7 +89,7 @@ const rng = new Rng(SEED);
 const PLAYER_CONFIG = DEFAULT_PLAYER_CONFIG;
 const START_X = PLAYFIELD_W / 2;
 const START_Y = PLAYFIELD_H * 0.8;
-const player = createPlayer(PLAYER_CONFIG, START_X, START_Y);
+const player = createPlayer(PLAYER_CONFIG, START_X, START_Y, DEFAULT_SCORING.pivBase);
 const lasers = createLaserSystem(64);
 let collisionOn = true;
 

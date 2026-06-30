@@ -30,6 +30,7 @@
 import { createStageSim, SIM_CAPACITY, type Simulation } from "./sim";
 import { hashFloat32Arrays } from "./hash";
 import { PLAYFIELD_W } from "./playfield";
+import { DEFAULT_RUN_CONFIG } from "../api/config";
 import type { InputFrame } from "./input";
 import type { StageDef, CharacterDef } from "../api/game";
 import type { StageScript } from "../api/stage";
@@ -195,7 +196,7 @@ export function checkStreamIsolation(stageSeed: number, dt: number): IsolationRe
   const run = (
     input: InputFrame,
   ): { bossHash: number; enemyCounts: number[]; peakBullets: number; stayedAlive: boolean } => {
-    const sim = createStageSim(ISO_STAGE, stageSeed, ISO_CHARACTER, dt);
+    const sim = createStageSim(ISO_STAGE, stageSeed, ISO_CHARACTER, DEFAULT_RUN_CONFIG, dt);
     let acc = FNV_OFFSET;
     let peakBullets = 0;
     let stayedAlive = true;

@@ -11,6 +11,7 @@
 
 import { createStageSim } from "./sim";
 import type { StageDef, CharacterDef } from "../api/game";
+import type { RunConfig } from "../api/config";
 import type { InputFrame } from "./input";
 
 export interface DeterminismResult {
@@ -38,9 +39,10 @@ export function checkDeterministic(
   inputs: readonly InputFrame[],
   dt: number,
   character: CharacterDef,
+  runConfig: RunConfig,
 ): DeterminismResult {
   const run = (): number => {
-    const sim = createStageSim(stageDef, stageSeed, character, dt);
+    const sim = createStageSim(stageDef, stageSeed, character, runConfig, dt);
     let acc = 0x811c9dc5;
     for (let i = 0; i < inputs.length; i++) {
       sim.step(inputs[i]!);
@@ -60,8 +62,9 @@ export function assertDeterministic(
   inputs: readonly InputFrame[],
   dt: number,
   character: CharacterDef,
+  runConfig: RunConfig,
 ): DeterminismResult {
-  const result = checkDeterministic(stageDef, stageSeed, inputs, dt, character);
+  const result = checkDeterministic(stageDef, stageSeed, inputs, dt, character, runConfig);
   if (!result.ok) {
     throw new Error(
       `Determinism check FAILED: hash ${result.hashA} !== ${result.hashB} ` +

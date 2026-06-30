@@ -15,6 +15,7 @@
 
 import type { StageScript } from "./stage";
 import type { BossScript } from "./boss";
+import type { RunConfig } from "./config";
 import type { PlayerConfig } from "../touhou/player";
 import type { ShotConfig } from "../touhou/shot";
 
@@ -53,6 +54,9 @@ export interface GameDefinition {
   readonly stages: readonly StageDef[];
   /** Playable characters. The slice uses the first as the default. */
   readonly characters: readonly CharacterDef[];
+  /** Run rules — scoring economy, item tuning, continues. Construction input (not
+   *  hashed); `DEFAULT_RUN_CONFIG` is a ready default a game can use or override. */
+  readonly config: RunConfig;
 }
 
 /**

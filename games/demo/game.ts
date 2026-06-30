@@ -8,7 +8,7 @@
 // engine's sim economy work (player shots, enemies, items, scoring, multiple
 // stages) expands what a stage and character carry; this grows with it.
 
-import { defineGame, Shape, type ShotConfig } from "../../src/api";
+import { defineGame, DEFAULT_RUN_CONFIG, Shape, type ShotConfig } from "../../src/api";
 import { DEFAULT_PLAYER_CONFIG } from "../../src/touhou/player";
 import { DEMO_BOSS } from "./patterns/boss";
 import { demoStage } from "./patterns/stage";
@@ -36,4 +36,7 @@ export const demoGame = defineGame({
   seed: 0x1a9e,
   stages: [{ id: "stage-1", script: demoStage, boss: DEMO_BOSS }],
   characters: [{ id: "default", config: DEFAULT_PLAYER_CONFIG, shot: DEMO_SHOT }],
+  // The reference game uses the engine's default run rules (scoring economy, item
+  // tuning, continues). A real game spreads these and overrides what it wants.
+  config: DEFAULT_RUN_CONFIG,
 });

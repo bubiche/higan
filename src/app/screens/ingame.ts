@@ -66,7 +66,13 @@ export function createInGameScreen(shell: Shell, continuesUsed = 0): InGameScree
   // run, not the live one — content scripts are what hot-reload live.)
   const STAGE_INDEX = 0;
   const buildSim = (runSeed: number): Simulation =>
-    createStageSim(shell.def.stages[STAGE_INDEX]!, mixSeed(runSeed, STAGE_INDEX), character, DT);
+    createStageSim(
+      shell.def.stages[STAGE_INDEX]!,
+      mixSeed(runSeed, STAGE_INDEX),
+      character,
+      shell.def.config,
+      DT,
+    );
   let sim: Simulation = buildSim(def.seed);
 
   const driver: SimDriver = createSimDriver({

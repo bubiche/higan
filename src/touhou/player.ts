@@ -16,7 +16,6 @@
 // emitter RNG stream — and every existing pattern's replay — is unaffected.
 
 import type { InputFrame } from "../core/input";
-import { PIV_BASE } from "./score";
 
 /** Player lifecycle, driving the death/respawn step machine. A const object
  *  rather than a TS enum so it stays fully erasable under isolatedModules. */
@@ -110,7 +109,9 @@ export interface Player {
   state: PlayerState;
 }
 
-export function createPlayer(cfg: PlayerConfig, x: number, y: number): Player {
+/** `pivBase` is the run's starting point-item value (`ScoringConfig.pivBase`), passed
+ *  in so the player struct stays free of the scoring economy module. */
+export function createPlayer(cfg: PlayerConfig, x: number, y: number, pivBase: number): Player {
   return {
     x,
     y,
@@ -121,7 +122,7 @@ export function createPlayer(cfg: PlayerConfig, x: number, y: number): Player {
     power: 0,
     pointItemsCollected: 0,
     score: 0,
-    piv: PIV_BASE,
+    piv: pivBase,
     nextExtendIndex: 0,
     invulnTicks: 0,
     deathbombTicks: 0,

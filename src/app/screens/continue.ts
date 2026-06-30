@@ -16,16 +16,12 @@ import { createMenu, type Menu, type MenuItem } from "../menu";
 import { createInGameScreen } from "./ingame";
 import { createResultsScreen } from "./results";
 
-/** Continues allowed per run. LITMUS: hardcoded here for now (one consumer); graduates
- *  to the game-level RunConfig (alongside the score.ts / item.ts economy constants) at
- *  the run-params pass, with this value as the default. */
-const MAX_CONTINUES = 3;
-
 /** `continuesUsed` is how many continues this run has already spent (0 on the first
- *  game-over). Threaded in by the in-game screen, which carries it across the rebuild. */
+ *  game-over). Threaded in by the in-game screen, which carries it across the rebuild.
+ *  The per-run continue allowance is a game-level run rule (`config.continues`). */
 export function createContinueScreen(shell: Shell, continuesUsed = 0): Screen {
   const { overlay, input, router } = shell;
-  const remaining = MAX_CONTINUES - continuesUsed;
+  const remaining = shell.def.config.continues - continuesUsed;
   let menu: Menu;
 
   const doContinue = (): void => {
