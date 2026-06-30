@@ -82,6 +82,33 @@ for (let i = 0; i < PATTERN_TICKS * 13; i++) {
 }
 assertDeterministic(showcaseStageDef, STAGE_SEED, showcaseScript, DT, character, NORMAL, demoGame.config);
 
+// Every window above holds `bomb:false`, so the bomb path — the configurable field clear
+// (radial bullet-cancel, laser nuke, item vacuum, boss damage) and the rising-edge bomb
+// detect — would otherwise be unhashed-untested. A short window over the SECOND character
+// (whose bomb is the offensive radial one) presses bomb on a rising edge every 300 ticks so
+// those branches run under the continuous determinism net (A==B trips on any nondeterminism
+// the moment it creeps in). It fires during the opening waves — enough to cover the radial
+// cancel + laser-clear + item-vacuum + the boss-damage branch CONDITION; the boss-damage
+// actually LANDING and the exact-hash baseline are left to the headless verify, which can
+// afford the long boss-reaching window. Kept short so boot/HMR stays cheap.
+const bombChar = demoGame.characters[1]!;
+const bombScripted: InputFrame[] = [];
+for (let i = 0; i < 1500; i++) {
+  bombScripted.push({
+    dx: (i >> 4) % 2 ? 1 : -1,
+    dy: (i >> 5) % 2 ? 1 : -1,
+    shoot: true,
+    focus: i % 90 < 40,
+    bomb: i % 300 < 8, // held 8 ticks every 300 → a rising edge each window, so bombs deploy
+  });
+}
+const bombDet = assertDeterministic(stage, STAGE_SEED, bombScripted, DT, bombChar, NORMAL, demoGame.config);
+console.info(
+  `[higan] bomb-path determinism OK (${bombChar.id}) — hash 0x${bombDet.hashA
+    .toString(16)
+    .padStart(8, "0")} over ${bombDet.ticks} ticks`,
+);
+
 // Engine-seam self-test (DEV only — dead-stripped from the production bundle, where
 // a player can't introduce a stream-crossing bug): the boss's danmaku stream is
 // isolated from the play-dependent enemy stream (F4). Distinct from the determinism

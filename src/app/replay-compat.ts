@@ -10,7 +10,7 @@
 //
 // What it covers, and why:
 //   - Reproduction inputs — the data the sim reads for a given (seed, rank, input):
-//     every character's movement/shot config, and the run economy (`scoring` + `item`).
+//     every character's movement/shot/bomb config, and the run economy (`scoring` + `item`).
 //     The CHOSEN character feeds the trajectory; the others are folded in too as a
 //     conservative over-reject (cheaper than tracking which index a blob used).
 //   - Structural guards — the stage ids (which stages, in order) and the difficulty
@@ -51,7 +51,7 @@ function fnv1a(str: string): number {
 export function computeConfigId(def: GameDefinition): number {
   const data = {
     stages: def.stages.map((s) => s.id),
-    characters: def.characters.map((c) => ({ config: c.config, shot: c.shot ?? null })),
+    characters: def.characters.map((c) => ({ config: c.config, shot: c.shot ?? null, bomb: c.bomb ?? null })),
     difficulties: (def.difficulties ?? DEFAULT_DIFFICULTIES).map((d) => d.id),
     scoring: def.config.scoring,
     item: def.config.item,

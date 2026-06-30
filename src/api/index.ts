@@ -52,6 +52,7 @@ export {
 } from "./config";
 
 export { DEFAULT_SHOT_CONFIG, type ShotConfig } from "../touhou/shot";
+export { DEFAULT_BOMB_CONFIG, type BombConfig } from "../touhou/bomb";
 
 export {
   linear,

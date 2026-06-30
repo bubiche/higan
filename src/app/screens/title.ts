@@ -8,23 +8,21 @@
 
 import type { Screen, Shell } from "../screen";
 import { createMenu, type Menu } from "../menu";
-import { createInGameScreen } from "./ingame";
-import { createRunController } from "../run";
-import { createSelectScreen } from "./select";
+import { createCharacterScreen, proceedAfterCharacter } from "./character";
+import { CHARACTER_INDEX } from "../run";
 import { createOptionsScreen } from "./options";
-import { DEFAULT_DIFFICULTIES } from "../../api/game";
 
 export function createTitleScreen(shell: Shell): Screen {
   const { overlay, input, def } = shell;
   let menu: Menu;
 
-  // Start → difficulty select, unless the game offers a single difficulty (the engine
-  // default), in which case there's nothing to choose: go straight in at rank 0.
+  // Start → character select, unless the game offers a single character, in which case
+  // there's nothing to choose: skip straight to the difficulty step (which itself skips to
+  // a fresh run when there's a single difficulty). The "after a character is chosen" step
+  // lives in `proceedAfterCharacter`, shared with the character screen's confirm.
   const start = (): void => {
-    const difficulties = def.difficulties ?? DEFAULT_DIFFICULTIES;
-    // Single-difficulty games skip select and start a fresh run at rank 0.
-    if (difficulties.length <= 1) shell.router.replace(createInGameScreen(shell, createRunController(def, 0)));
-    else shell.router.replace(createSelectScreen(shell));
+    if (def.characters.length <= 1) proceedAfterCharacter(shell, CHARACTER_INDEX);
+    else shell.router.replace(createCharacterScreen(shell));
   };
 
   // `shell.router` is read lazily inside the callbacks (NOT destructured here): the

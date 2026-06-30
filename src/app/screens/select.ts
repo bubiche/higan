@@ -1,21 +1,24 @@
 // Difficulty-select screen.
 //
-// Sits between the title's Start and the in-game screen (Title → Select → InGame).
-// It lists the game's `difficulties` — display data the game authors (label + an
-// optional blurb) — and threads the chosen entry's INDEX into the run as its rank.
-// The rank is construction input the sim and content branch on (`ctx.difficulty`);
-// this screen never touches the simulation or its hash. Like the rest of the flow it
-// uses single-entry `replace`, so it replaces the title and is itself replaced by the
-// in-game screen (or by a fresh title on cancel).
+// Sits between character-select and the in-game screen (Title → Character → Difficulty →
+// InGame). It lists the game's `difficulties` — display data the game authors (label + an
+// optional blurb) — and threads the chosen entry's INDEX into the run as its rank, along
+// with the `character` already chosen upstream. Both are construction inputs the sim and
+// content branch on (`ctx.difficulty`, and which character config feeds the sim); this
+// screen never touches the simulation or its hash. Like the rest of the flow it uses
+// single-entry `replace`, so it replaces the character screen and is itself replaced by
+// the in-game screen (or, on cancel, by the previous step — character-select when the game
+// has more than one character, else the title).
 
 import type { Screen, Shell } from "../screen";
 import { createMenu, type Menu } from "../menu";
 import { createInGameScreen } from "./ingame";
 import { createRunController } from "../run";
 import { createTitleScreen } from "./title";
+import { createCharacterScreen } from "./character";
 import { DEFAULT_DIFFICULTIES } from "../../api/game";
 
-export function createSelectScreen(shell: Shell): Screen {
+export function createSelectScreen(shell: Shell, character: number): Screen {
   const { overlay, input } = shell;
   // The game's difficulties (engine fallback if it authored none); the entry's index
   // is the rank passed to the run.
@@ -34,12 +37,19 @@ export function createSelectScreen(shell: Shell): Screen {
           const blurb = difficulties[i]?.description;
           return blurb ? `${blurb}   ·   Z start · X back` : "↑/↓ select · Z start · X back";
         },
-        onCancel: () => shell.router.replace(createTitleScreen(shell)),
+        // Back goes one step up the flow: to character-select if the game offers a choice,
+        // else straight to the title (the character screen was skipped on the way in).
+        onCancel: () =>
+          shell.router.replace(
+            shell.def.characters.length > 1 ? createCharacterScreen(shell) : createTitleScreen(shell),
+          ),
         items: difficulties.map((d, rank) => ({
           kind: "action",
           label: d.label,
-          // The chosen rank is this entry's index; a fresh controller starts a clean run.
-          onConfirm: () => shell.router.replace(createInGameScreen(shell, createRunController(shell.def, rank))),
+          // The chosen rank is this entry's index; the character was chosen upstream. A
+          // fresh controller starts a clean run with both.
+          onConfirm: () =>
+            shell.router.replace(createInGameScreen(shell, createRunController(shell.def, rank, character))),
         })),
       });
     },

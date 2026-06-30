@@ -18,6 +18,7 @@ import type { BossScript } from "./boss";
 import type { RunConfig } from "./config";
 import type { PlayerConfig } from "../touhou/player";
 import type { ShotConfig } from "../touhou/shot";
+import type { BombConfig } from "../touhou/bomb";
 
 /**
  * One stage of a game. The `script` is the scene root: a coroutine (boss idiom) that
@@ -35,14 +36,16 @@ export interface StageDef {
   readonly boss?: BossScript;
 }
 
-/** A playable character: its movement/life tuning plus its shot definition. (Bomb
- *  def graduates here later, alongside scoring.) */
+/** A playable character: its movement/life tuning plus its shot and bomb definitions. */
 export interface CharacterDef {
   readonly id: string;
   readonly config: PlayerConfig;
   /** The character's player-shot definition. Defaults to the engine's standard shot
    *  if omitted, so a minimal game needn't author one. */
   readonly shot?: ShotConfig;
+  /** The character's bomb definition. Defaults to the engine's full-screen defensive
+   *  bomb (`DEFAULT_BOMB_CONFIG`) if omitted, so a minimal game needn't author one. */
+  readonly bomb?: BombConfig;
 }
 
 /**

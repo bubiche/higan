@@ -8,16 +8,21 @@
 // engine's sim economy work (player shots, enemies, items, scoring, multiple
 // stages) expands what a stage and character carry; this grows with it.
 
-import { defineGame, DEFAULT_RUN_CONFIG, Shape, type ShotConfig } from "../../src/api";
+import { defineGame, DEFAULT_RUN_CONFIG, Shape, type ShotConfig, type BombConfig } from "../../src/api";
 import { DEFAULT_PLAYER_CONFIG } from "../../src/touhou/player";
 import { DEMO_BOSS } from "./patterns/boss";
 import { demoStage } from "./patterns/stage";
 
-// The reference character's shot — authored content (a different game defines its
-// own with zero engine change). A pale needle that points along travel: focus
-// concentrates it into a tight column for high single-target DPS on the boss;
-// unfocus fans it wider. Power widens the volley (flat until items feed power).
-const DEMO_SHOT: ShotConfig = {
+// Two reference characters — authored content (a different game defines its own with
+// zero engine change). They differ in BOTH halves of the offense: the shot (how you
+// deal damage) and the bomb (the panic-clear). That contrast is the engine litmus —
+// a character swap must change the bomb, not just the shot.
+
+// ── Spread: the all-rounder. A pale needle that points along travel; focus
+// concentrates it into a tight column for single-target DPS on the boss, unfocus fans
+// it wider. Its bomb is the engine default (omitted below): a full-screen defensive
+// clear, no boss damage — pure survival.
+const SPREAD_SHOT: ShotConfig = {
   fireInterval: 4,
   speed: 640,
   damage: 10,
@@ -31,11 +36,43 @@ const DEMO_SHOT: ShotConfig = {
   focusSpreadFrac: 0.2,
 };
 
+// ── Focus: the glass cannon. A narrow gold column — fewer, harder-hitting stars in a
+// near-straight line, so almost everything lands on a centred boss (high single-target
+// DPS, little crowd coverage). Its bomb is OFFENSIVE: a partial-screen radial clear
+// around the player (leaves the field edges) that also lurches the boss's HP bar — the
+// visible counterpoint to Spread's full-screen no-damage clear.
+const FOCUS_SHOT: ShotConfig = {
+  fireInterval: 4,
+  speed: 680,
+  damage: 20,
+  radius: 5,
+  sprite: Shape.Star,
+  color: [1.0, 0.9, 0.4],
+  baseStreams: 2,
+  powerPerStream: 32,
+  maxStreams: 4,
+  spread: 0.06,
+  focusSpreadFrac: 0.15,
+};
+
+const FOCUS_BOMB: BombConfig = {
+  bossDamage: 300, // a visible ~1/3-of-a-phase chunk off the boss bar (phases are 700–1100 HP)
+  radius: 140, // clears around the player but not the field edges (field is 384×448)
+  clearLasers: true,
+  vacuumItems: true,
+};
+
 export const demoGame = defineGame({
   title: "HIGAN",
   seed: 0x1a9e,
   stages: [{ id: "stage-1", script: demoStage, boss: DEMO_BOSS }],
-  characters: [{ id: "default", config: DEFAULT_PLAYER_CONFIG, shot: DEMO_SHOT }],
+  // Two characters: Spread (default defensive bomb — omitted, so it uses the engine
+  // default) and Focus (an explicit offensive bomb). Both share the run's player config;
+  // a different game would tune lives/speed per character too.
+  characters: [
+    { id: "Spread", config: DEFAULT_PLAYER_CONFIG, shot: SPREAD_SHOT },
+    { id: "Focus", config: DEFAULT_PLAYER_CONFIG, shot: FOCUS_SHOT, bomb: FOCUS_BOMB },
+  ],
   // Four difficulties, easiest-first — the chosen entry's INDEX is the rank the content
   // scales on (see `./difficulty`: Easy 0 … Lunatic 3, with NORMAL the unscaled anchor).
   // The labels/blurbs are this game's own; the engine has no opinion on them. A different

@@ -24,8 +24,9 @@ import type { GameDefinition } from "../api/game";
 import type { ReplaySegment, RunReplay } from "../touhou/replay";
 import { computeConfigId } from "./replay-compat";
 
-/** The character a run uses until character-select exists. The replay blob captures the
- *  index and a load rejects any other (the slice only runs this one). */
+/** Default character index — the fallback `createRunController` uses when a caller
+ *  doesn't pass one (a single-character game, where the select screen is skipped). The
+ *  character screen passes a real chosen index; the replay blob captures whichever it is. */
 export const CHARACTER_INDEX = 0;
 
 export interface RunController {
@@ -35,8 +36,10 @@ export interface RunController {
   /** Current difficulty rank (a 0-based index into the game's difficulties). MUTABLE:
    *  loading a replay adopts its recorded rank so the rebuilt sim runs at it. */
   difficulty: number;
-  /** Chosen character index (fixed at CHARACTER_INDEX until character-select exists). */
-  readonly character: number;
+  /** Chosen character index (a 0-based index into the game's characters). MUTABLE:
+   *  loading a replay adopts its recorded character so the rebuilt sim runs as it —
+   *  exactly as `difficulty` adopts the recorded rank. */
+  character: number;
   /** Fingerprint of the game DATA this run was created against — stamped into a save and
    *  checked on load (see replay-compat.ts). */
   readonly configId: number;
@@ -54,11 +57,17 @@ export interface RunController {
   assembleReplay(currentPlay: ReplaySegment): RunReplay;
 }
 
-/** Start a fresh run at `difficulty`: the game's seed, the default character, a data
- *  fingerprint, no continues spent, no prior segments. A continue REUSES the resulting
- *  controller (the run goes on); a retry / new run builds a fresh one (a clean run, no
- *  carried-over history) — see the pause/title/select screens. */
-export function createRunController(def: GameDefinition, difficulty: number): RunController {
+/** Start a fresh run at `difficulty` as `character`: the game's seed, the chosen
+ *  character (defaulting to `CHARACTER_INDEX` when a caller omits it — a single-character
+ *  game that skips the select screen), a data fingerprint, no continues spent, no prior
+ *  segments. A continue REUSES the resulting controller (the run goes on); a retry / new
+ *  run builds a fresh one (a clean run, no carried-over history) — see the pause/title/
+ *  select screens. */
+export function createRunController(
+  def: GameDefinition,
+  difficulty: number,
+  character: number = CHARACTER_INDEX,
+): RunController {
   const runSeed = def.seed;
   const configId = computeConfigId(def);
   const priorSegments: ReplaySegment[] = [];
@@ -67,7 +76,7 @@ export function createRunController(def: GameDefinition, difficulty: number): Ru
   return {
     runSeed,
     difficulty,
-    character: CHARACTER_INDEX,
+    character,
     configId,
     get continuesUsed(): number {
       return continuesUsed;

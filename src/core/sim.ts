@@ -64,6 +64,7 @@ import {
   DEFAULT_SHOT_CONFIG,
   type ShotSystem,
 } from "../touhou/shot";
+import { DEFAULT_BOMB_CONFIG } from "../touhou/bomb";
 import { awardGraze, awardSpellCapture, awardStageClear, applyExtends, awardCancel } from "../touhou/score";
 
 /** Bullet-store capacity a stage sim allocates — also the size the renderer's
@@ -160,6 +161,7 @@ export function createStageSim(
 ): Simulation {
   const config = character.config;
   const shot = character.shot ?? DEFAULT_SHOT_CONFIG;
+  const bomb = character.bomb ?? DEFAULT_BOMB_CONFIG;
   // The run's economy/physics tuning (scoring + item), construction input (not hashed).
   const scoring = runConfig.scoring;
   const itemCfg = runConfig.item;
@@ -297,8 +299,9 @@ export function createStageSim(
       // modest cancel, never the (separately-gated) capture bonus, so capture stays the
       // headline reward. (Gating the cancel on `captured` would wrongly skip a phase
       // beaten with a miss; threading the end-reason isn't worth it — see implementation
-      // notes.) Beams clear without converting.
-      cancelBullets();
+      // notes.) Beams clear without converting. Always a full-field clear (radius 0) — the
+      // genre screen-clear on a phase boundary, independent of any character's bomb radius.
+      cancelBullets(player.x, player.y, 0);
       lasers.clear();
     },
     hp: () => bossState.hp,
@@ -382,8 +385,8 @@ export function createStageSim(
   // Bullet-cancel: the deterministic transform a field clear (spell capture, phase
   // transition, boss defeat, or a bomb/deathbomb) runs over the live bullets before
   // they vanish — the genre mechanic where cleared danmaku pays out (sign-off §c). Every
-  // live bullet pays a flat cancel score; the first CANCEL_ITEM_CAP of them ALSO leave a
-  // Point item (the collectable shower) — the cap BOUNDS the conversion so a thousand-
+  // cancelled bullet pays a flat cancel score; the first CANCEL_ITEM_CAP of them ALSO leave
+  // a Point item (the collectable shower) — the cap BOUNDS the conversion so a thousand-
   // bullet clear can't spike the item pool (the pool drops-when-full behind it too).
   // Consumes ZERO rng (cancel items pop with no scatter, vx=vy=0), so it never perturbs
   // the item stream; the score delta + the new items are already hashed, so the transform
@@ -392,37 +395,53 @@ export function createStageSim(
   // clears the field. The score write routes through score.ts (the single-writer rule).
   // Lasers are cleared by the caller — beams aren't bullets, so they don't convert. The
   // visual cancel sparkle is a later (presentation) milestone; this is only the mechanic.
-  const cancelBullets = (): void => {
-    if (player.state !== PlayerState.GameOver) {
-      const { alive, store } = system;
-      const hw = system.highWater;
-      const vis = ITEM_VISUAL[ItemType.Point];
-      let n = 0;
-      let spawned = 0;
-      for (let i = 0; i < hw; i++) {
-        if (alive[i] === 0) continue;
-        n++;
-        // Spawn at the bullet's position with zero velocity (it then falls / magnets /
-        // attracts like any item). First-cap rather than spread — the visible spread is
-        // a presentation concern (the M8 sparkle), not gameplay.
-        if (spawned < itemCfg.cancelItemCap) {
-          items.spawn({
-            type: ItemType.Point,
-            x: store.x[i]!,
-            y: store.y[i]!,
-            vx: 0,
-            vy: 0,
-            sprite: vis.sprite,
-            r: vis.color[0],
-            g: vis.color[1],
-            b: vis.color[2],
-          });
-          spawned++;
-        }
+  //
+  // `radius` scopes the clear (a character's `BombConfig.radius`): `0` = the whole field —
+  // the bulk path, which `system.clear()`s every slot at once (the spell-capture / phase-
+  // transition / default-bomb behavior, kept byte-for-byte so existing baselines hold);
+  // `>0` = only bullets within `radius` of `(cx, cy)`, freed slot by slot, with the cancel
+  // count (and the item shower) covering ONLY those — a partial-screen offensive bomb.
+  const cancelBullets = (cx: number, cy: number, radius: number): void => {
+    const { alive, store } = system;
+    const hw = system.highWater;
+    const vis = ITEM_VISUAL[ItemType.Point];
+    const award = player.state !== PlayerState.GameOver;
+    const r2 = radius * radius;
+    let n = 0;
+    let spawned = 0;
+    for (let i = 0; i < hw; i++) {
+      if (alive[i] === 0) continue;
+      // Spatial scope: the bulk path (radius 0) takes every live bullet; a radial bomb
+      // takes only those inside the circle and leaves the rest flying.
+      if (radius > 0) {
+        const dx = store.x[i]! - cx;
+        const dy = store.y[i]! - cy;
+        if (dx * dx + dy * dy > r2) continue;
       }
-      if (n > 0) awardCancel(player, n, scoring);
+      n++;
+      // Spawn at the bullet's position with zero velocity (it then falls / magnets /
+      // attracts like any item). First-cap rather than spread — the visible spread is
+      // a presentation concern (the sparkle), not gameplay.
+      if (award && spawned < itemCfg.cancelItemCap) {
+        items.spawn({
+          type: ItemType.Point,
+          x: store.x[i]!,
+          y: store.y[i]!,
+          vx: 0,
+          vy: 0,
+          sprite: vis.sprite,
+          r: vis.color[0],
+          g: vis.color[1],
+          b: vis.color[2],
+        });
+        spawned++;
+      }
+      // Radial: free just this slot (out-of-circle bullets survive). The bulk path frees
+      // everything at once below — cheaper than per-slot despawn and exactly the old code.
+      if (radius > 0) system.despawn(i);
     }
-    system.clear();
+    if (award && n > 0) awardCancel(player, n, scoring);
+    if (radius === 0) system.clear();
   };
 
   const stageDeps: StageDeps = {
@@ -644,11 +663,29 @@ export function createStageSim(
     //    bullet/laser systems.
     const { clearField } = stepPlayerLifecycle(player, input, config, hit, START_X, START_Y);
     if (clearField) {
-      // A bomb/deathbomb cancels the field (converts it to point-items + score), then
-      // vacuums every item — including the just-spawned cancel items — toward the player.
-      cancelBullets();
-      lasers.clear();
-      items.attractAll();
+      // A bomb/deathbomb runs the active character's bomb (its `BombConfig`): cancel the
+      // field — wholly (radius 0) or within the bomb's radius of the player — converting it
+      // to point-items + score; optionally nuke every beam and vacuum every item (including
+      // the just-spawned cancel items) toward the player; and deal the bomb's flat damage to
+      // the active boss. The radius is bullet-only — laser-clear/item-vacuum stay global —
+      // and `bossDamage` lands on the same hashed boss HP the shot-vs-boss drain (4b) hits,
+      // guarded the same way, so a defensive bomb (default: radius 0, 0 boss damage) is the
+      // unchanged full-screen clear and an offensive one dents the boss + clears around the
+      // player. `clearField` only fires from a successful bomb press (bombs > 0, not game-
+      // over), so the boss-damage game-over guard is belt-and-suspenders, matching 4b.
+      cancelBullets(player.x, player.y, bomb.radius);
+      if (bomb.clearLasers) lasers.clear();
+      if (bomb.vacuumItems) items.attractAll();
+      if (
+        bomb.bossDamage > 0 &&
+        bossRoot &&
+        bossState.active &&
+        bossState.hp > 0 &&
+        player.state !== PlayerState.GameOver
+      ) {
+        bossState.hp -= bomb.bossDamage;
+        if (bossState.hp < 0) bossState.hp = 0;
+      }
     }
 
     // 8. Items: advance pop/gravity/magnet/home (cull off the bottom), then collect any

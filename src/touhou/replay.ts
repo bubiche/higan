@@ -56,8 +56,10 @@ export interface RunReplay {
   /** Chosen difficulty rank (index into the game's difficulties). Construction input
    *  the content branches on — adopted on load so the replay is self-contained. */
   readonly difficulty: number;
-  /** Chosen character index. Captured for forward-compatibility; the slice only runs
-   *  character 0, so a load of any other index is rejected. */
+  /** Chosen character index. Construction input the sim branches on (which character's
+   *  config/shot/bomb feeds it) — adopted on load so the replay is self-contained, exactly
+   *  like the difficulty rank. (The `configId` already guards that the character SET
+   *  matches, so the recorded index is always in range against a build that loads.) */
   readonly character: number;
   /** Fingerprint of the game's tunable DATA at record time (see replay-compat.ts).
    *  A load whose configId differs from the current build's is rejected. */

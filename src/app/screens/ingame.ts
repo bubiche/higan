@@ -62,9 +62,12 @@ export function asInGame(screen: Screen): InGameScreen | null {
  */
 export function createInGameScreen(shell: Shell, run: RunController): InGameScreen {
   const { sidebar, input, bullets, lasers, def } = shell;
-  // The slice runs the default character; character-select (and a real chosen index)
-  // arrives later. The controller captures the index; a load rejects any other.
-  const character = def.characters[run.character]!;
+  // The character the controller chose. Captured (not read fresh per build) so a content
+  // hot-reload doesn't hot-swap the player config mid-run — only content scripts do. It is
+  // a `let`, not a `const`, for ONE case: loading a replay adopts the recorded character in
+  // place (re-captured below in `loadReplayFile`, mirroring the difficulty adopt), so the
+  // next rebuild runs as it.
+  let character = def.characters[run.character]!;
   // The slice runs the first stage as stage 0 of the run. The driver is seeded with
   // the RUN seed (what a replay captures); the per-stage seed is mixed from it, so
   // chaining more stages later only changes the index. `buildSim` reads the stage from
@@ -73,8 +76,10 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
   // code, AND a brand-new run (retry / return-to-title → start) picks it up too; it
   // reads `run.difficulty` fresh too, so an adopted replay rank lands on the next
   // rebuild. The sim is reassignable so backward-scrub / hot-reload / a new run / a
-  // loaded replay can rebuild. (The character is captured: editing the player config
-  // takes effect on the next fresh run, not the live one — content scripts hot-reload.)
+  // loaded replay can rebuild. (The character is captured in the `character` binding:
+  // editing the player config takes effect on the next fresh run, not the live one —
+  // content scripts hot-reload. Loading a replay re-captures it, so the rebuild runs as
+  // the recorded character.)
   const STAGE_INDEX = 0;
   const buildSim = (runSeed: number): Simulation =>
     createStageSim(
@@ -212,10 +217,9 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       replayStatus = "load failed: replay was recorded against different game data";
       return;
     }
-    if (replay.character !== run.character) {
-      replayStatus = `load failed: unsupported character ${replay.character}`;
-      return;
-    }
+    // No character reject: the matching configId already guarantees the same character set
+    // (it folds in every character's config/shot/bomb), so the recorded index is in range —
+    // we ADOPT it in place below, exactly like the rank.
     if (replay.segments.length === 0) {
       replayStatus = "load failed: replay has no segments";
       return;
@@ -227,17 +231,23 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       replayStatus = "load failed: multi-stage replay not yet supported";
       return;
     }
-    // Adopt the recorded rank IN PLACE on the controller, then play the segments. Done in
-    // place rather than by swapping to a fresh screen: the Save/Load buttons live in the
-    // sidebar and stay clickable while an overlay (e.g. the pause menu) sits on top, so a
-    // `router.replace` here would pop the OVERLAY and orphan the in-game screen beneath —
-    // which keeps rendering its now-frozen player marker (a "phantom" second player).
-    // Rebuilding this screen's own sim can't orphan anything. Each segment is a separate
-    // play (a continue), so they load one at a time: land at the first, advance with the
-    // button — each advance is a real replay that reproduces that segment at the adopted
-    // rank, so the multi-segment run is demonstrably bit-identical across all of them.
+    // Adopt the recorded rank AND character IN PLACE on the controller, then play the
+    // segments. Done in place rather than by swapping to a fresh screen: the Save/Load
+    // buttons live in the sidebar and stay clickable while an overlay (e.g. the pause menu)
+    // sits on top, so a `router.replace` here would pop the OVERLAY and orphan the in-game
+    // screen beneath — which keeps rendering its now-frozen player marker (a "phantom"
+    // second player). Rebuilding this screen's own sim can't orphan anything. Each segment
+    // is a separate play (a continue), so they load one at a time: land at the first,
+    // advance with the button — each advance is a real replay that reproduces that segment
+    // at the adopted rank + character, so the multi-segment run is demonstrably bit-
+    // identical across all of them.
     loadedReplay = replay;
     run.difficulty = replay.difficulty;
+    // Re-capture the character binding (and the cosmetic hitbox dot it sizes) BEFORE
+    // loadSegment → buildSim reads it, so the rebuild runs as the recorded character.
+    run.character = replay.character;
+    character = shell.def.characters[run.character]!;
+    hitboxMarker.radius = character.config.hitboxRadius;
     ended = false;
     loadSegment(0);
   };
