@@ -14,7 +14,7 @@ import { createResultsScreen, type RunOutcome } from "./results";
 import { createPauseScreen } from "./pause";
 import { createContinueScreen } from "./continue";
 import { createHud, type Hud } from "../hud";
-import { createStageSim, type Simulation, SHOT_CAPACITY } from "../../core/sim";
+import { createStageSim, type Simulation, SHOT_CAPACITY, ENEMY_CAPACITY } from "../../core/sim";
 import { mixSeed } from "../../core/prng";
 import { createSimDriver, type SimDriver } from "../../core/runtime";
 import { DT } from "../../core/playfield";
@@ -23,6 +23,7 @@ import { serializeReplay, deserializeReplay } from "../../touhou/replay";
 import { Shape } from "../../render/shapes";
 import { INSTANCE_FLOATS, type Overlay } from "../../render/bullets";
 import { marshalShots } from "../../render/shots";
+import { marshalEnemies } from "../../render/enemies";
 import type { BossScript } from "../../api/boss";
 
 /** Speeds the number keys cycle through (debugger slow-mo). */
@@ -70,6 +71,9 @@ export function createInGameScreen(shell: Shell): InGameScreen {
   // reuses the bullet renderer's program — no separate shot shader). Sized to the
   // pool cap × the bullet instance stride.
   const shotInstances = new Float32Array(SHOT_CAPACITY * INSTANCE_FLOATS);
+  // Reused scratch for the enemy instance stream (enemies reuse the bullet program
+  // too — Option B, no separate shader). Sized to the pool cap × the instance stride.
+  const enemyInstances = new Float32Array(ENEMY_CAPACITY * INSTANCE_FLOATS);
 
   // Bound to its DOM element in `buildDom` (the element doesn't exist until enter,
   // which always runs before the first frame/render).
@@ -214,14 +218,17 @@ export function createInGameScreen(shell: Shell): InGameScreen {
       if (!invulnBlink) overlays.push(playerMarker);
       if (player.focused) overlays.push(hitboxMarker);
 
-      // Beams first (behind the bullet glow), then player shots (under the enemy
-      // bullets for readability), then the bullets + overlays. All draw additively;
-      // shots reuse the bullet program via `drawInstances`, issued BEFORE the bullet
-      // draw overwrites the shared instance buffer. The canvas is cleared by the
-      // shell before the stack renders.
+      // Beams first (behind the bullet glow), then player shots (under everything for
+      // readability), then enemies (the foes that fire the danmaku), then the bullets
+      // + overlays on top. All draw additively; shots and enemies reuse the bullet
+      // program via `drawInstances`, each issued BEFORE the next draw overwrites the
+      // shared instance buffer. The canvas is cleared by the shell before the stack
+      // renders.
       const beams = lasers.draw(sim.lasers.lasers);
       const shotCount = marshalShots(sim.shots.shots, shotInstances);
       bullets.drawInstances(shotInstances, shotCount);
+      const enemyCount = marshalEnemies(sim.enemies.enemies, enemyInstances);
+      bullets.drawInstances(enemyInstances, enemyCount);
       const drawn = bullets.draw(system.store, system.alive, system.highWater, overlays);
       hud.update(sim, driver, { beams, drawn, replayStatus });
     },

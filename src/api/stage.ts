@@ -18,6 +18,22 @@
 import type { EmitterScript, RunningEmitter, Vec2 } from "./emitter";
 import type { Rng } from "../core/prng";
 
+/**
+ * An enemy's authored stats — the hittable-target content (like a character's
+ * shot). Position + behaviour come from the spawn call and the enemy's emitter
+ * script; this is just hp + the collision/draw shape.
+ */
+export interface EnemySpec {
+  /** Starting (and max) hit points; player shots drain it, 0 = death. */
+  readonly hp: number;
+  /** Collision + draw radius, sim units. */
+  readonly radius: number;
+  /** Shape atlas layer (render-only). */
+  readonly sprite: number;
+  /** Linear RGB tint, 0..1 (render-only). */
+  readonly color: readonly [number, number, number];
+}
+
 export interface StageContext {
   /** Current sim tick. */
   readonly tick: number;
@@ -35,6 +51,18 @@ export interface StageContext {
    * Resumes next tick (no same-tick re-entrancy), exactly like an emitter's `sub`.
    */
   sub(script: EmitterScript): void;
+  /**
+   * Spawn an enemy at (x, y) running `script` as its behaviour, on the (enemy)
+   * stream. The enemy is a hittable target — player shots drain `spec.hp`, and it
+   * dies at 0 — while its `script` is an ordinary emitter coroutine that moves the
+   * enemy (via `ctx.x/y`) and fires its danmaku. It lives until the script returns,
+   * its hp hits 0, or it leaves the field.
+   *
+   * Stage-surface ONLY (deliberately not on `EmitterContext`): an enemy can be
+   * spawned only on the enemy stream, never accidentally onto the protected boss
+   * stream. A wave is authored as this stage coroutine directing spawns over time.
+   */
+  spawnEnemy(script: EmitterScript, x: number, y: number, spec: EnemySpec): void;
   /**
    * Spawn the stage's boss (the `boss` on its `StageDef`). The sim creates it on the
    * dedicated boss stream and tracks it for HP-drain / defeat detection. A no-op if
@@ -58,6 +86,8 @@ export interface StageDeps {
   readonly target: Readonly<Vec2>;
   /** Append an emitter child to the scheduler on `rng` (the stage's stream). */
   spawnChild(script: EmitterScript, x: number, y: number, group: number, rng: Rng): void;
+  /** Spawn an enemy bound to a struct slot on the enemy stream (sim-implemented). */
+  spawnEnemy(script: EmitterScript, x: number, y: number, spec: EnemySpec): void;
   /** Spawn the stage's boss on the boss stream (sim-implemented). */
   spawnBoss(): void;
 }
@@ -79,6 +109,9 @@ export function startStage(
     target: deps.target,
     sub(child) {
       deps.spawnChild(child, ctx.x, ctx.y, 0, deps.rng);
+    },
+    spawnEnemy(script, ex, ey, spec) {
+      deps.spawnEnemy(script, ex, ey, spec);
     },
     spawnBoss() {
       deps.spawnBoss();

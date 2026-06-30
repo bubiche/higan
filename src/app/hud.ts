@@ -85,6 +85,7 @@ export function createHud(panel: HTMLElement): Hud {
       lines.push(`phase   ${sim.patternName}`);
       lines.push(`bullets ${sim.system.liveCount}`);
       lines.push(`shots   ${sim.shots.liveCount}`);
+      lines.push(`enemies ${sim.enemies.liveCount}`);
       lines.push(`beams   ${frame.beams}`);
       lines.push(`drawn   ${frame.drawn}`);
       lines.push(`hash    0x${sim.hash().toString(16).padStart(8, "0")}`);

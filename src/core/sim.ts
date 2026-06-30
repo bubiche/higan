@@ -27,15 +27,17 @@ import { Rng, mixSeed } from "./prng";
 import { hashFloat32Arrays } from "./hash";
 import { createBulletSystem, type BulletSystem } from "../bullets/system";
 import { createLaserSystem, type LaserSystem } from "../touhou/laser";
+import { createEnemySystem, stepEnemyShotCollision, type EnemySystem } from "../touhou/enemy";
 import {
   startEmitter,
   stepEmitter,
   type EmitterDeps,
+  type EmitterScript,
   type RunningEmitter,
   type Vec2,
 } from "../api/emitter";
 import { startBoss, type BossDeps, type PhaseSpec } from "../api/boss";
-import { startStage, type StageDeps } from "../api/stage";
+import { startStage, type StageDeps, type EnemySpec } from "../api/stage";
 import type { StageDef, CharacterDef } from "../api/game";
 import { PLAYFIELD_W, PLAYFIELD_H } from "./playfield";
 import type { InputFrame } from "./input";
@@ -62,7 +64,13 @@ export const SIM_CAPACITY = 4096;
 export const LASER_CAPACITY = 64;
 /** Player-shot pool capacity (the renderer marshals at most this many shots). */
 export const SHOT_CAPACITY = 256;
+/** Enemy-pool capacity (§f ~tens; the renderer + hash scratch size to match). */
+export const ENEMY_CAPACITY = 64;
 const CULL_MARGIN = 16;
+/** Off-field margin past which an enemy is culled. Generous — enemies enter from
+ *  above the field, so this must clear their spawn point (the tight bullet
+ *  `CULL_MARGIN` would kill them the moment they spawn off-screen). */
+const ENEMY_CULL_MARGIN = 96;
 /** Boss collision radius — the disc player shots damage. A constant for the demo
  *  (the boss origin is static); a per-boss hitbox/position is a content seam later. */
 const BOSS_HIT_RADIUS = 22;
@@ -106,6 +114,8 @@ export interface Simulation {
   readonly lasers: LaserSystem;
   /** The player-shot pool (the offensive bullets the player fires) the renderer draws. */
   readonly shots: ShotSystem;
+  /** The enemy pool (hittable foes that fire their own danmaku) the renderer draws. */
+  readonly enemies: EnemySystem;
   /** The player struct (position + game state). Read-only to consumers — only the
    *  sim mutates it, so the HUD/renderer can never become a second source of truth. */
   readonly player: Readonly<Player>;
@@ -142,6 +152,7 @@ export function createStageSim(
     { width: PLAYFIELD_W, height: PLAYFIELD_H, margin: CULL_MARGIN },
     SHOT_CAPACITY,
   );
+  const enemies = createEnemySystem(ENEMY_CAPACITY);
 
   // Spawn / respawn position — the bottom-centre start. A constant (not hashed),
   // passed to the lifecycle step so a respawn returns the player here.
@@ -162,6 +173,15 @@ export function createStageSim(
   // root, the boss once spawned, and every `sub`-spawned emitter). Stepped in array
   // order each tick; stable order + the clamped-yield rule keep it deterministic.
   let running: RunningEmitter[] = [];
+  // Enemy slot ↔ its root emitter. An enemy is both a hittable target (the struct in
+  // the pool — hashed, drawn, shot-collided) and an emitter (a coroutine on the enemy
+  // stream that moves itself + fires). The coroutine OWNS position via `ctx.x/y`; the
+  // sim PUBLISHES it to the struct each tick (single source = the struct) and tears
+  // the pair down together (free slot + end emitter) on death / coroutine-return /
+  // off-field, so the slot and its emitter can never desync. Insertion order is
+  // deterministic. (The enemy's `ctx.sub`-spawned children are free emitters, not
+  // bound — already-fired sub-streams persist after the enemy dies, genre-correct.)
+  let bound: { slot: number; em: RunningEmitter }[] = [];
 
   const deps: EmitterDeps = {
     system,
@@ -231,11 +251,35 @@ export function createStageSim(
     running.push(bossRoot);
   };
 
+  // Spawn an enemy: allocate a struct slot, then bind a root emitter to it on the
+  // ENEMY stream (the §c protected-stream discipline — enemies ride the play-
+  // dependent enemy stream, never the boss's). The emitter resumes next tick (the
+  // no-same-tick-re-entry rule, like spawnChild). A no-op if the pool is full — the
+  // enemy AND its emitter are dropped together (deterministic). Group 0: an enemy is
+  // not part of a boss phase, so a phase transition's group-clear leaves it.
+  const spawnEnemy = (script: EmitterScript, ex: number, ey: number, spec: EnemySpec): void => {
+    const slot = enemies.spawn({
+      x: ex,
+      y: ey,
+      hp: spec.hp,
+      radius: spec.radius,
+      sprite: spec.sprite,
+      r: spec.color[0],
+      g: spec.color[1],
+      b: spec.color[2],
+    });
+    if (slot < 0) return;
+    const em = startEmitter(script, ex, ey, tick + 1, deps, rngEnemy, 0);
+    running.push(em);
+    bound.push({ slot, em });
+  };
+
   const stageDeps: StageDeps = {
     // The stage script runs on the (play-dependent) enemy stream.
     rng: rngEnemy,
     target,
     spawnChild: deps.spawnChild,
+    spawnEnemy,
     spawnBoss,
   };
 
@@ -286,6 +330,14 @@ export function createStageSim(
   const shage = new Float32Array(SHOT_CAPACITY);
   const shdmg = new Float32Array(SHOT_CAPACITY);
   const shrad = new Float32Array(SHOT_CAPACITY);
+  // Enemy scratch (live enemies, packed in pool order — deterministic). The evolving
+  // state (position, hp, age) + the constant radius (a spawn-path tripwire, like a
+  // laser's length); sprite/colour are render-only, left out as the laser's are.
+  const enx = new Float32Array(ENEMY_CAPACITY);
+  const eny = new Float32Array(ENEMY_CAPACITY);
+  const enhp = new Float32Array(ENEMY_CAPACITY);
+  const enrad = new Float32Array(ENEMY_CAPACITY);
+  const enage = new Float32Array(ENEMY_CAPACITY);
   // Running-emitter scratch: (resumeTick, group) per live emitter, in array order
   // (deterministic). Directly fingerprints the scheduler — the central machinery —
   // beyond what the bullets those emitters spawn already imply. NOTE: this caps only
@@ -303,8 +355,9 @@ export function createStageSim(
   const rngStateU32 = new Uint32Array(8);
   const rngStateView = new Float32Array(rngStateU32.buffer);
   // Scalar block: sim/scene/laser state (0-7), the full player struct (8-17),
-  // boss/spell state (18-22), and the player-shot live count (23).
-  const scalars = new Float32Array(24);
+  // boss/spell state (18-22), the player-shot live count (23), the enemy live
+  // count (24).
+  const scalars = new Float32Array(25);
 
   const step = (input: InputFrame): void => {
     // 1. Player movement from input (focus-aware speed, clamped to the field).
@@ -328,13 +381,26 @@ export function createStageSim(
     // to decide transitions. HP is drained by player shots LANDING (step 5b).
     if (bossRoot && bossState.active && bossState.timeLeft > 0) bossState.timeLeft--;
 
+    // 3b. Publish each bound enemy emitter's coroutine position to its struct (the
+    //     coroutine, stepped just above, owns movement; the struct is the canonical
+    //     position the hash/render/collision read), and age the live enemies.
+    for (let i = 0; i < bound.length; i++) {
+      const e = enemies.enemies[bound[i]!.slot]!;
+      if (!e.alive) continue;
+      e.x = bound[i]!.em.ctx.x;
+      e.y = bound[i]!.em.ctx.y;
+      e.age++;
+    }
+
     // 4. Advance bullets (homing reads the shared target), cull off-field.
     system.update(dt, target.x, target.y);
-    // 4b. Advance player shots, then resolve shot-vs-boss. HP falls only as shots
-    //     actually land, so aim/position matters. Run AFTER stepRunning so the
-    //     coroutine read this tick's pre-drain HP (the one-tick transition lag, see
-    //     api/boss.ts). Gated on the boss existing + being active.
+    // 4b. Advance player shots, then resolve shot-vs-enemy and shot-vs-boss. Enemies
+    //     first (popcorn in front): a shot spent on an enemy can't also hit the boss.
+    //     HP (enemy + boss) falls only as shots actually land, so aim/position matters.
+    //     Run AFTER stepRunning so a boss coroutine read this tick's pre-drain HP (the
+    //     one-tick transition lag, see api/boss.ts).
     shots.update(dt);
+    stepEnemyShotCollision(enemies, shots);
     if (bossRoot && bossState.active && bossState.hp > 0 && player.state !== PlayerState.GameOver) {
       const dmg = stepShotCollision(shots, {
         x: BOSS_ORIGIN_X,
@@ -345,6 +411,31 @@ export function createStageSim(
         bossState.hp -= dmg;
         if (bossState.hp < 0) bossState.hp = 0;
       }
+    }
+    // 4c. Enemy teardown — the deterministic death seam. An enemy dies on hp<=0
+    //     (shot down), coroutine-return (em.done — flew its course), or leaving the
+    //     field (generous margin). Free the slot AND end its emitter together so they
+    //     can never desync. One fixed-order sweep, then compact `bound` + `running`.
+    //     In-flight bullets the enemy fired persist (genre-correct). No §h event list
+    //     yet (no consumer until scoring / audio).
+    let torn = false;
+    for (let i = 0; i < bound.length; i++) {
+      const { slot, em } = bound[i]!;
+      const e = enemies.enemies[slot]!;
+      const off =
+        e.x < -ENEMY_CULL_MARGIN ||
+        e.x > PLAYFIELD_W + ENEMY_CULL_MARGIN ||
+        e.y < -ENEMY_CULL_MARGIN ||
+        e.y > PLAYFIELD_H + ENEMY_CULL_MARGIN;
+      if (e.hp <= 0 || em.done || off) {
+        enemies.despawn(slot);
+        em.done = true;
+        torn = true;
+      }
+    }
+    if (torn) {
+      bound = bound.filter((b) => !b.em.done);
+      running = running.filter((em) => !em.done);
     }
     // 5. Advance beams (age the telegraph→fire→fade lifecycle, sweep, despawn).
     lasers.update(dt);
@@ -415,6 +506,19 @@ export function createStageSim(
       shrad[k] = s.radius;
       k++;
     }
+    // Compact live enemies in pool order (same rationale as bullet slots).
+    const ep = enemies.enemies;
+    let q = 0;
+    for (let i = 0; i < ep.length; i++) {
+      const e = ep[i];
+      if (!e.alive) continue;
+      enx[q] = e.x;
+      eny[q] = e.y;
+      enhp[q] = e.hp;
+      enrad[q] = e.radius;
+      enage[q] = e.age;
+      q++;
+    }
     // Pack live emitters' schedule state (array order — deterministic).
     let e = 0;
     for (let i = 0; i < running.length && e < EMITTER_SCRATCH; i++) {
@@ -457,6 +561,7 @@ export function createStageSim(
     scalars[21] = bossState.active ? 1 : 0;
     scalars[22] = bossState.defeated ? 1 : 0;
     scalars[23] = shots.liveCount;
+    scalars[24] = enemies.liveCount;
     return hashFloat32Arrays([
       sx.subarray(0, n),
       sy.subarray(0, n),
@@ -483,6 +588,11 @@ export function createStageSim(
       shage.subarray(0, k),
       shdmg.subarray(0, k),
       shrad.subarray(0, k),
+      enx.subarray(0, q),
+      eny.subarray(0, q),
+      enhp.subarray(0, q),
+      enrad.subarray(0, q),
+      enage.subarray(0, q),
       semitRT.subarray(0, e),
       semitG.subarray(0, e),
       rngStateView,
@@ -497,6 +607,7 @@ export function createStageSim(
     system,
     lasers,
     shots,
+    enemies,
     player,
     get patternName() {
       if (bossRoot) {

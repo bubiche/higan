@@ -23,15 +23,20 @@ const STAGE_SEED = mixSeed(SEED, 0);
 const stage = demoGame.stages[0]!;
 const character = demoGame.characters[0]!;
 
-// The determinism run holds shoot and weaves so player shots drain the boss's HP and
-// the window spans all four phases — the opening plus the three spells, including the
-// live-group-retarget (phase 2) and the beam-rake lasers (phase 3) — exercising the
+// The determinism run holds shoot and weaves, so it exercises the WHOLE live scene:
+// the opening enemy WAVE (spawn → the bound enemy emitters → shot-vs-enemy collision →
+// death/cull), then the boss's four phases — opening plus the three spells, including
+// the live-group-retarget (phase 3) and the beam-rake lasers (phase 4) — exercising the
 // stage root + multi-emitter scheduler, child-spawn, retarget, lasers, the per-stream
-// RNG, AND the player-shot pool + shot-vs-boss collision, the machinery the guard most
-// needs to cover. (Shot-driven damage is slower than the old position-independent
-// stub, so the window is longer.)
+// RNG, AND the player-shot pool + shot-vs-enemy/boss collision. The window spans through
+// the beam-rake lasers (which start ~tick 3653 now that a wave precedes the boss). NOTE:
+// the weave doesn't centre on the boss, so the boss phases TIME OUT here rather than
+// being HP-captured — that's fine, the determinism coverage of every phase is identical
+// either way (both runPhase exits are deterministic); the shot-vs-boss damage path is
+// proven separately (a centred player drains it fast). If boot feels slow, sample every
+// Nth tick in the guard — coverage holds, cost drops.
 const scripted: InputFrame[] = [];
-const GUARD_TICKS = 2600;
+const GUARD_TICKS = 4000;
 for (let i = 0; i < GUARD_TICKS; i++) {
   scripted.push({
     dx: (i >> 3) % 2 ? 1 : -1,
