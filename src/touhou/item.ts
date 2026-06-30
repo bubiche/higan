@@ -20,6 +20,7 @@
 // the asset slot at the presentation milestone with no change to this path.
 
 import { PlayerState, type Player } from "./player";
+import { awardPointItem, PIV_MIN_FACTOR } from "./score";
 import { Shape } from "../render/shapes";
 import { PLAYFIELD_H } from "../core/playfield";
 
@@ -271,12 +272,24 @@ export function stepItemCollection(items: ItemSystem, player: Player, maxPower: 
   }
 }
 
+/** Height factor for point-item scoring (the PoC mechanic): a point item collected
+ *  at or above the PoC line is worth full PIV (factor 1); below, the value scales
+ *  down to `PIV_MIN_FACTOR` at the field bottom. Collection homes the item onto the
+ *  player, so `y` is the player's y — the height at which it was grabbed. */
+function pocHeightFactor(y: number): number {
+  if (y <= POC_LINE) return 1;
+  const t = (y - POC_LINE) / (PLAYFIELD_H - POC_LINE); // 0 at the line, 1 at the bottom
+  const factor = 1 - t * (1 - PIV_MIN_FACTOR);
+  return factor < PIV_MIN_FACTOR ? PIV_MIN_FACTOR : factor;
+}
+
 /** Apply one collected item to the player. Pure; the caller despawns the item. */
 function applyItem(type: ItemType, player: Player, maxPower: number): void {
   switch (type) {
     case ItemType.Power:
       if (player.power >= maxPower) {
-        player.pointItemsCollected++; // overflow past max power converts to a point
+        // Overflow past max power converts to a point (scored by collection height).
+        awardPointItem(player, pocHeightFactor(player.y));
       } else {
         player.power = Math.min(maxPower, player.power + POWER_PER_ITEM);
       }
@@ -291,7 +304,7 @@ function applyItem(type: ItemType, player: Player, maxPower: number): void {
       player.bombs++;
       break;
     case ItemType.Point:
-      player.pointItemsCollected++;
+      awardPointItem(player, pocHeightFactor(player.y));
       break;
   }
 }

@@ -8,13 +8,15 @@
 // apply.
 //
 // This module owns the struct, the run-rules config, and the movement step. The
-// game-state fields (lives, bombs, graze, the invuln/deathbomb timers, the bomb
-// edge-detect bit, spell-capture tracking) live here from the start so the hash
-// layout is stable; collision and the bomb/death machine WRITE into them from
+// game-state fields (lives, bombs, graze, power, the run-economy score/piv/extend
+// fields, the invuln/deathbomb timers, the bomb edge-detect bit, spell-capture
+// tracking) live here from the start so the hash layout is stable; collision, the
+// bomb/death machine, item collection, and the scoring economy WRITE into them from
 // later steps of sim.step. The movement step consumes ZERO randomness, so the
 // emitter RNG stream — and every existing pattern's replay — is unaffected.
 
 import type { InputFrame } from "../core/input";
+import { PIV_BASE } from "./score";
 
 /** Player lifecycle, driving the death/respawn step machine. A const object
  *  rather than a TS enum so it stays fully erasable under isolatedModules. */
@@ -82,10 +84,19 @@ export interface Player {
    *  Starts at 0; Power / FullPower items feed it. (Graduates into run-state when
    *  scoring lands.) */
   power: number;
-  /** Point-items collected this run (raw count — folded into the hash). The scoring
-   *  economy multiplies this by PIV into score later; for now it just accumulates so
-   *  point items (and Power overflow past max) have a real, hashed effect. */
+  /** Point-items collected this run (raw count for the HUD — folded into the hash).
+   *  The scoring value of each is `piv × height-factor`, accumulated into `score`. */
   pointItemsCollected: number;
+  /** Running score (gameplay → hashed via a two-lane f32 fold, since it exceeds f32's
+   *  2^24 exact-integer range). Kept integer-valued — every award floors (see score.ts).
+   *  (Graduates into run-state alongside lives/bombs/power/graze when stages chain.) */
+  score: number;
+  /** Point-item value: what the next point item scores at full height; grows over the
+   *  run, capped. Hashed (two-lane fold) like `score`; kept integer. */
+  piv: number;
+  /** Index into the extend-threshold list — the next score-based extra life. Advances
+   *  once per threshold crossed (see score.ts `applyExtends`). Hashed. */
+  nextExtendIndex: number;
   /** >0 = invulnerable (i-frames after respawn/bomb); counts down. */
   invulnTicks: number;
   /** >0 = deathbomb window open; counts down. */
@@ -109,6 +120,9 @@ export function createPlayer(cfg: PlayerConfig, x: number, y: number): Player {
     graze: 0,
     power: 0,
     pointItemsCollected: 0,
+    score: 0,
+    piv: PIV_BASE,
+    nextExtendIndex: 0,
     invulnTicks: 0,
     deathbombTicks: 0,
     prevBomb: false,

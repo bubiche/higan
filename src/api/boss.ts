@@ -49,8 +49,10 @@ export interface BossDeps {
   /** Activate a phase: publish name/hp/timer to the sim, reset capture tracking. */
   beginPhase(spec: PhaseSpec): void;
   /** End a phase: mark that group's emitters done and clear the field (bullets +
-   *  beams), the genre-standard screen clear on capture/transition. */
-  endPhase(group: number): void;
+   *  beams), the genre-standard screen clear on capture/transition. `captured` (the
+   *  no-miss-HP-drain outcome `runPhase` already computed) is threaded so the sim can
+   *  award the spell-capture bonus — gameplay, so the sim owns it, not the script. */
+  endPhase(group: number, captured: boolean): void;
   /** Current phase HP remaining (the sim drains it as the player shoots). */
   hp(): number;
   /** Current phase ticks remaining. */
@@ -101,11 +103,11 @@ function* runPhase(
   while (true) {
     if (deps.hp() <= 0) {
       const captured = deps.captured();
-      deps.endPhase(group);
+      deps.endPhase(group, captured);
       return { captured, timedOut: false };
     }
     if (deps.timeLeft() <= 0) {
-      deps.endPhase(group);
+      deps.endPhase(group, false);
       return { captured: false, timedOut: true };
     }
     yield 1;

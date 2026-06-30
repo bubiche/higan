@@ -63,6 +63,7 @@ import {
   DEFAULT_SHOT_CONFIG,
   type ShotSystem,
 } from "../touhou/shot";
+import { awardGraze, awardSpellCapture, awardStageClear, applyExtends } from "../touhou/score";
 
 /** Bullet-store capacity a stage sim allocates — also the size the renderer's
  *  instance buffer is built to, so the shell can size renderers before a sim exists. */
@@ -203,6 +204,11 @@ export function createStageSim(
   const target: Vec2 = { x: player.x, y: player.y };
 
   let tick = 0;
+  // Rising-edge latch for the one-shot stage-clear bonus (awarded when the stage script
+  // returns). Stays false on a game-over: the stage only "completes" by the script
+  // returning, which needs the final boss beaten — a dead player can't, so this never
+  // fires on a loss (and is gated on it besides).
+  let prevStageComplete = false;
   // The scheduler runs an ordered array of emitter roots + their children (the stage
   // root, the boss once spawned, and every `sub`-spawned emitter). Stepped in array
   // order each tick; stable order + the clamped-yield rule keep it deterministic.
@@ -270,7 +276,14 @@ export function createStageSim(
       // Capture tracking resets at phase start; a hit or bomb clears it (player.ts).
       player.spellCapturedNoMiss = true;
     },
-    endPhase(group: number) {
+    endPhase(group: number, captured: boolean) {
+      // Spell-capture bonus: awarded FIRST, while bossState still holds this phase's
+      // timer/limit/isSpell (cleared just below). Only a captured SPELL pays — a
+      // timed-out or ordinary phase does not. Gameplay (it can trigger an extend) →
+      // hashed, zero RNG. The declining-with-time bonus lives in score.ts.
+      if (captured && bossState.isSpell) {
+        awardSpellCapture(player, bossState.timeLeft, bossState.timeLimit);
+      }
       for (const em of running) if (em.group === group) em.done = true;
       bossState.active = false;
       // Genre-standard screen clear on capture / phase transition (sign-off §b).
@@ -448,11 +461,18 @@ export function createStageSim(
   // divergence is chaotic, not incremental — but it costs nothing to do right.)
   const rngStateU32 = new Uint32Array(12);
   const rngStateView = new Float32Array(rngStateU32.buffer);
+  // Score/PIV folded LOSSLESSLY as two u32 lanes each (hi·2^32 + lo), then hashed via
+  // a Float32 VIEW over the same buffer — like rngStateView. A single f32 lane would
+  // truncate the low bits of a 10^7-10^9 score (past f32's 2^24 exact-integer range),
+  // a divergence the byte-hash would silently miss; the two-lane split keeps every bit.
+  // Order: score hi, score lo, piv hi, piv lo. (score/piv are kept integer — score.ts.)
+  const scoreU32 = new Uint32Array(4);
+  const scoreView = new Float32Array(scoreU32.buffer);
   // Scalar block: sim/scene/laser state (0-7), the full player struct (8-17),
   // boss/spell state (18-21), the stage-complete flag (22), the player-shot live
   // count (23), the enemy live count (24), the item live count (25), point-items
-  // collected (26).
-  const scalars = new Float32Array(27);
+  // collected (26), the next-extend index (27). (score/piv fold via scoreView above.)
+  const scalars = new Float32Array(28);
 
   const step = (input: InputFrame): void => {
     // 1. Player movement from input (focus-aware speed, clamped to the field).
@@ -471,6 +491,15 @@ export function createStageSim(
     //    advance through the same scheduler array. The stage drives the scene; the
     //    boss is a mid-run child it spawns.
     stepRunning();
+    // 3a. Stage-clear bonus (one-shot, rising edge). The stage script returns only
+    //     when the run is cleared (final boss down); award the remaining-lives/bombs
+    //     bonus once, BEFORE the end-of-step extend check so a clear bonus can itself
+    //     trigger an extend. Gated on a live player so a boss timing out after a
+    //     game-over can't pay a clear bonus.
+    if (!prevStageComplete && stageRoot.done && player.state !== PlayerState.GameOver) {
+      awardStageClear(player);
+    }
+    prevStageComplete = stageRoot.done;
     // An encounter ends when its boss coroutine returns; null `bossRoot` so the HUD
     // gauge and shot-vs-boss stop until the stage spawns the next boss (if any). The
     // stage's `boss()` await polls the root's own `done`, so it resumes independently
@@ -546,8 +575,12 @@ export function createStageSim(
     // 5. Advance beams (age the telegraph→fire→fade lifecycle, sweep, despawn).
     lasers.update(dt);
     // 6. Player-vs-field pass — graze (a write) + hit detection (read-only over
-    //    bullets and beams). Consumes no randomness.
+    //    bullets and beams). Consumes no randomness. Score the graze delta this tick
+    //    (graze→score) from the count change `stepCollision` made — no scoring inside
+    //    the collision loop, which stays a pure graze/hit pass.
+    const grazeBefore = player.graze;
     const { hit } = stepCollision(player, system, lasers, config);
+    if (player.graze > grazeBefore) awardGraze(player, player.graze - grazeBefore);
     // 7. Death/bomb lifecycle consumes the hit. A bomb (or deathbomb) clears the
     //    field; the clear is done here so the lifecycle step stays free of the
     //    bullet/laser systems.
@@ -566,6 +599,11 @@ export function createStageSim(
     const fullPower = MAX_POWER > 0 && player.power >= MAX_POWER;
     items.update(dt, player.x, player.y, fullPower);
     stepItemCollection(items, player, MAX_POWER);
+
+    // 9. Extends: every score-threshold the run has crossed this tick grants a life.
+    //    Runs last, after every award this tick (point items, graze, spell capture,
+    //    stage clear) has landed in `score`. Bounded by the threshold list; zero RNG.
+    applyExtends(player);
 
     tick++;
   };
@@ -673,6 +711,15 @@ export function createStageSim(
     rngStateU32[9] = its[1];
     rngStateU32[10] = its[2];
     rngStateU32[11] = its[3];
+    // Two-lane fold of the integer-valued score + piv (hi = whole 2^32 blocks, lo =
+    // remainder). Both are < 2^53, so hi/lo land in [0, 2^32) and the Uint32 store is
+    // exact — no bit lost. (Negative score never occurs; awards are non-negative.)
+    const scoreHi = Math.floor(player.score / 0x100000000);
+    const pivHi = Math.floor(player.piv / 0x100000000);
+    scoreU32[0] = scoreHi;
+    scoreU32[1] = player.score - scoreHi * 0x100000000;
+    scoreU32[2] = pivHi;
+    scoreU32[3] = player.piv - pivHi * 0x100000000;
     scalars[0] = tick;
     scalars[1] = system.liveCount;
     scalars[2] = player.x;
@@ -700,6 +747,7 @@ export function createStageSim(
     scalars[24] = enemies.liveCount;
     scalars[25] = items.liveCount;
     scalars[26] = player.pointItemsCollected;
+    scalars[27] = player.nextExtendIndex;
     return hashFloat32Arrays([
       sx.subarray(0, n),
       sy.subarray(0, n),
@@ -741,6 +789,7 @@ export function createStageSim(
       semitRT.subarray(0, e),
       semitG.subarray(0, e),
       rngStateView,
+      scoreView,
       scalars,
     ]);
   };

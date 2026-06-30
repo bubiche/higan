@@ -32,6 +32,12 @@ function iconRow(count: number, icon: string): string {
   return `${icon.repeat(ICON_CAP)} +${count - ICON_CAP}`;
 }
 
+// Thousands-grouped integer for the score/PIV readouts (presentation only — the sim
+// holds the exact integer; this never feeds the hash).
+function grouped(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
 const GAUGE_CELLS = 18;
 function gauge(ratio: number): string {
   const clamped = ratio < 0 ? 0 : ratio > 1 ? 1 : ratio;
@@ -56,10 +62,11 @@ export function createHud(panel: HTMLElement): Hud {
       const lines: string[] = [];
 
       lines.push("── player ──");
+      lines.push(`score   ${grouped(player.score)}`);
       lines.push(`lives   ${iconRow(player.lives, "✦")}`);
       lines.push(`bombs   ${iconRow(player.bombs, "✸")}`);
       lines.push(`power   ${player.power}`);
-      lines.push(`points  ${player.pointItemsCollected}`);
+      lines.push(`points  ${player.pointItemsCollected}  (piv ${grouped(player.piv)})`);
       lines.push(`graze   ${player.graze}`);
       const stateLabel = STATE_LABELS[player.state] ?? "?";
       lines.push(`state   ${stateLabel}${player.invulnTicks > 0 ? ` (inv ${player.invulnTicks})` : ""}`);

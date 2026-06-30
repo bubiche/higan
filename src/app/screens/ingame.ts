@@ -171,7 +171,9 @@ export function createInGameScreen(shell: Shell): InGameScreen {
       // continue choice then either rebuilds the run or falls through to results.
       shell.router.push(createContinueScreen(shell));
     } else {
-      shell.router.replace(createResultsScreen(shell, outcome));
+      // Clear: hand the final score (read off the sim) to results. The game-over path
+      // goes through the continue prompt instead and carries no score.
+      shell.router.replace(createResultsScreen(shell, outcome, sim.player.score));
     }
   };
 
