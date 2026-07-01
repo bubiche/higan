@@ -31,7 +31,7 @@ export type {
 
 export type { BossScript, BossContext, PhaseSpec, PhaseResult } from "./boss";
 
-export type { StageScript, StageContext, EnemySpec } from "./stage";
+export type { StageScript, StageContext, EnemySpec, Dialogue, DialogueLine } from "./stage";
 
 export { ItemType, type ItemDropTable } from "../touhou/item";
 

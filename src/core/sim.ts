@@ -45,7 +45,7 @@ import {
   type Vec2,
 } from "../api/emitter";
 import { startBoss, type BossDeps, type PhaseSpec, type BossScript } from "../api/boss";
-import { startStage, type StageDeps, type EnemySpec } from "../api/stage";
+import { startStage, type StageDeps, type EnemySpec, type Dialogue } from "../api/stage";
 import type { StageDef, CharacterDef } from "../api/game";
 import type { RunConfig } from "../api/config";
 import { PLAYFIELD_W, PLAYFIELD_H } from "./playfield";
@@ -152,6 +152,12 @@ export interface Simulation {
    *  on the hash (audio is provably presentation). The in-game screen plays these after
    *  a live forward step and suppresses them during bulk scrub/replay re-steps. */
   readonly events: readonly SfxEvent[];
+  /** A dialogue sequence the stage requested via `ctx.dialogue()` on the LAST step, or
+   *  null. NOT hashed and never fed back into sim logic — the same one-tick-window
+   *  discipline as `events` (cleared at the start of each step). The shell (`runtime.ts`
+   *  `shouldHalt` + the in-game screen) reads this after a live step to freeze for the
+   *  dialogue box; see `StageContext.dialogue`. */
+  readonly dialogueRequest: Dialogue | null;
   /** Advance the simulation by exactly one fixed step, given this tick's input. */
   step(input: InputFrame): void;
   /** Bit-level fingerprint of the current state (live slots only). */
@@ -247,6 +253,12 @@ export function createStageSim(
   const emit = (id: SfxId, x?: number, n?: number, y?: number): void => {
     events.push({ id, x, n, y });
   };
+
+  // Non-hashed presentation latch: the stage requested a dialogue sequence THIS tick via
+  // `ctx.dialogue()`. Cleared at the START of the next step (the `events` discipline), so
+  // it reflects exactly the tick that set it. `requestDialogue` consumes zero RNG and
+  // touches no hashed field, so a dialogue call can never perturb a replay.
+  let dialogueRequest: Dialogue | null = null;
 
   const deps: EmitterDeps = {
     system,
@@ -486,6 +498,9 @@ export function createStageSim(
     spawnChild: deps.spawnChild,
     spawnEnemy,
     spawnBoss,
+    requestDialogue(script) {
+      dialogueRequest = script;
+    },
   };
 
   // The stage script is the scene root (R3). Started at construction so it begins on
@@ -590,6 +605,7 @@ export function createStageSim(
     // it to one tick — no accumulation across a `loadRecording` re-step). Presentation
     // only; see the `events`/`emit` declaration above.
     events.length = 0;
+    dialogueRequest = null;
 
     // 1. Player movement from input (focus-aware speed, clamped to the field).
     stepPlayerMovement(player, input, config, dt, PLAYFIELD_W, PLAYFIELD_H);
@@ -982,6 +998,9 @@ export function createStageSim(
     },
     get events() {
       return events;
+    },
+    get dialogueRequest() {
+      return dialogueRequest;
     },
     step,
     hash,

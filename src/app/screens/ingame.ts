@@ -13,6 +13,7 @@ import type { Screen, Shell } from "../screen";
 import type { RunController } from "../run";
 import { createResultsScreen, type RunOutcome } from "./results";
 import { createPauseScreen } from "./pause";
+import { createDialogueScreen } from "./dialogue";
 import { createContinueScreen } from "./continue";
 import { createHud, type Hud } from "../hud";
 import { createCutins, type CutinLayer, type CutinIdentity } from "../cutins";
@@ -115,6 +116,10 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
     rebuild: (seed) => {
       sim = buildSim(seed);
     },
+    // Checked only in the LIVE frame loop (never stepBack/resync/loadRecording, which must
+    // tick straight through to reproduce a recording) — halts the instant a `ctx.dialogue()`
+    // tick lands, even mid-catch-up, so the freeze can't overshoot past the requesting tick.
+    shouldHalt: () => sim.dialogueRequest !== null,
   });
 
   // Reused scratch for the player-shot instance stream (the placeholder shot layer
@@ -388,7 +393,7 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
         else if (code in SPEEDS) driver.setSpeed(SPEEDS[code]!);
       }
 
-      driver.frame(dtSeconds);
+      const haltedForDialogue = driver.frame(dtSeconds);
 
       // SFX follow the sim's EVENTS, gated on a real forward advance: `sim.events` holds
       // only the last stepped tick's sounds (cleared at each step start), so play them
@@ -408,6 +413,21 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
         // the SAME forward-advance gate so a scrub/replay-rebuild can't machine-gun them. The
         // persistent chrome + the appear splash are state reads, done in `render` (see below).
         cutins.trigger(sim.events, currentIdentity());
+      }
+
+      // A live step just landed on a `ctx.dialogue()` tick — the driver halted before running
+      // any further steps this frame (the `shouldHalt` hook above). Freeze by pushing the
+      // overlay, exactly like Escape → the pause menu: this screen stops receiving `frame`
+      // while it's on top, so no further tick runs until the player dismisses it. Return
+      // before the spell-tint/BGM/end-of-run checks below — they're all state reads that pick
+      // straight back up once this screen is `frame()`'d again after the box pops.
+      // `?.length` (not a bare non-null check): an author who passes an EMPTY dialogue array
+      // gets a graceful no-op — the halted latch clears on the very next step regardless of
+      // whether an overlay ever showed, so falling through here just lets play continue.
+      const dialogue = sim.dialogueRequest;
+      if (haltedForDialogue && dialogue?.length) {
+        shell.router.push(createDialogueScreen(shell, dialogue));
+        return;
       }
 
       // Spell-card background wash: ramp the tint toward full while an active phase is a spell,

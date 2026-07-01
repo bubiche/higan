@@ -28,10 +28,7 @@
 import type { BossState } from "../core/sim";
 import { SfxId, type SfxEvent } from "../core/events";
 import type { SpriteHandle } from "../api/sprites";
-
-/** Portrait canvas resolution for a procedural source (shown large, so bigger than a
- *  128px sprite cell). A url portrait keeps its native resolution. */
-const PORTRAIT_PX = 320;
+import { createPortraitResolver } from "./portrait";
 
 /** The presentation identity the shell reads from the game definition each frame (fresh, so
  *  a hot-reload of `bossInfo` / a character swap takes effect). All optional — a game with
@@ -117,19 +114,6 @@ function injectStyles(): void {
   document.head.appendChild(style);
 }
 
-/** Resolve a portrait handle's source to a CSS `url(...)` value: a procedural source paints
- *  frame 0 to a canvas → data URL; a url source is used directly (the bundler-fingerprinted
- *  href — same string-src caveat as backgrounds). Cached by the caller. */
-function resolvePortrait(handle: SpriteHandle): string {
-  const src = handle.def.source;
-  if (src.kind === "url") return src.src;
-  const c = document.createElement("canvas");
-  c.width = c.height = PORTRAIT_PX;
-  const ctx = c.getContext("2d")!;
-  src.draw(ctx, PORTRAIT_PX, 0, 1);
-  return c.toDataURL();
-}
-
 export function createCutins(overlay: HTMLElement): CutinLayer {
   injectStyles();
 
@@ -143,16 +127,7 @@ export function createCutins(overlay: HTMLElement): CutinLayer {
   overlay.appendChild(root);
 
   // Resolved portrait URLs, cached by handle identity (a procedural source is painted once).
-  const portraitCache = new Map<SpriteHandle, string>();
-  const portraitUrl = (handle?: SpriteHandle): string | null => {
-    if (!handle) return null;
-    let url = portraitCache.get(handle);
-    if (url === undefined) {
-      url = resolvePortrait(handle);
-      portraitCache.set(handle, url);
-    }
-    return url;
-  };
+  const portraitUrl = createPortraitResolver();
 
   // Presence on the previous rendered frame — the appear-edge tracker (updated every frame,
   // so it can never go stale across a paused scrub/rebuild).

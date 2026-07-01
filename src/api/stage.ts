@@ -42,6 +42,24 @@ export interface EnemySpec {
   readonly drops?: ItemDropTable;
 }
 
+/**
+ * One line of dialogue: optional speaker identity (a name label + portrait, shown
+ * together — omit both for an unattributed narrator line) plus the line's text.
+ * `side` picks which side of the box the portrait/name appear on (default "left") —
+ * alternate it per speaker so a back-and-forth exchange reads as two participants,
+ * not one label shifting in place.
+ */
+export interface DialogueLine {
+  readonly text: string;
+  readonly name?: string;
+  readonly portrait?: SpriteHandle;
+  readonly side?: "left" | "right";
+}
+
+/** A dialogue sequence, shown one line at a time and advanced by the player. See
+ *  `StageContext.dialogue`. */
+export type Dialogue = readonly DialogueLine[];
+
 export interface StageContext {
   /** Current sim tick. */
   readonly tick: number;
@@ -88,6 +106,19 @@ export interface StageContext {
    * encounter. Resolves immediately (a no-op) if no boss resolves.
    */
   boss(script?: BossScript): Generator<number, void, unknown>;
+  /**
+   * Request a dialogue sequence at this point in the stage. A PLAIN call — NOT
+   * `yield*` — that returns immediately: it marks a presentation-only request for
+   * THIS tick and costs no ticks and no randomness, so calling it never shifts any
+   * later tick (a stage can gain or lose a `dialogue()` call without perturbing a
+   * replay). The shell freezes the sim while it's shown — exactly like the pause
+   * menu: no tick passes, nothing enters the hash or the input log — and resumes it
+   * on the player's advance. Because the call itself doesn't yield, the stage's next
+   * statement runs the SAME tick; `ctx.dialogue(lines); yield* ctx.boss()` spawns the
+   * boss the same tick the box opens (it appears, frozen, behind the dialogue) —
+   * write a `yield` first if a script wants the boss to appear only after dismissal.
+   */
+  dialogue(script: Dialogue): void;
 }
 
 /** A stage: `ctx => function*`. `yield n` waits n ticks; the stage drives the
@@ -113,6 +144,10 @@ export interface StageDeps {
    *  `script` omitted AND the `StageDef` has no boss). The sim tracks it for HP-drain /
    *  defeat; the stage awaits its `done` via `boss()`. */
   spawnBoss(script?: BossScript): RunningEmitter | null;
+  /** Latch a dialogue request for the shell to pick up after this tick's step (sim.ts
+   *  clears it at the top of the NEXT step — the same one-tick-window discipline as
+   *  `events`). Zero RNG, not hashed — see `StageContext.dialogue`. */
+  requestDialogue(script: Dialogue): void;
 }
 
 /** Run one boss encounter to its end: spawn it on the boss stream, then poll its root
@@ -151,6 +186,9 @@ export function startStage(
     },
     boss(script) {
       return runBossEncounter(deps, script);
+    },
+    dialogue(script) {
+      deps.requestDialogue(script);
     },
   };
   return { ctx, gen: script(ctx), resumeTick: startTick, done: false, group: 0 };

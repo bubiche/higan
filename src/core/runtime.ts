@@ -37,6 +37,13 @@ export interface SimDriverOptions {
   rebuild: (seed: number) => void;
   /** Cap on steps per rendered frame, to avoid a spiral of death after a stall. */
   readonly maxStepsPerFrame?: number;
+  /** Optional per-step halt check, tested only in the LIVE `frame()` loop below —
+   *  never in `stepBack`/`resync`/`loadRecording`, which must tick straight through
+   *  to reproduce a recording exactly. When it returns true right after a step,
+   *  `frame` stops immediately (even mid-catch-up, so a stall's multi-step frame
+   *  can't overshoot) and reports the halt via its return value — used to freeze
+   *  presentation (dialogue) on the exact tick that requested it. */
+  shouldHalt?: () => boolean;
 }
 
 export interface SimDriver {
@@ -46,9 +53,11 @@ export interface SimDriver {
   /**
    * Advance the sim by the fixed-step accumulator for one rendered frame, given the
    * real wall-clock seconds elapsed. The shell's single animation loop calls this
-   * once per frame; it draws separately, so this never renders. A no-op while paused.
+   * once per frame; it draws separately, so this never renders. A no-op (returns
+   * false) while paused. Returns true iff `shouldHalt` fired during this call — the
+   * live loop just stopped on the tick that requested it.
    */
-  frame(dtSeconds: number): void;
+  frame(dtSeconds: number): boolean;
   pause(): void;
   play(): void;
   togglePause(): void;
@@ -73,7 +82,7 @@ export interface SimDriver {
 }
 
 export function createSimDriver(opts: SimDriverOptions): SimDriver {
-  const { dt, sampleInput, step, rebuild } = opts;
+  const { dt, sampleInput, step, rebuild, shouldHalt } = opts;
   const maxSteps = opts.maxStepsPerFrame ?? 5;
 
   const inputLog: InputFrame[] = [];
@@ -108,15 +117,20 @@ export function createSimDriver(opts: SimDriverOptions): SimDriver {
     get tick() {
       return tick;
     },
-    frame(dtSeconds: number): void {
-      if (paused) return;
+    frame(dtSeconds: number): boolean {
+      if (paused) return false;
       acc += dtSeconds * speed;
       let steps = 0;
       while (acc >= dt && steps < maxSteps) {
         advanceOne();
         acc -= dt;
         steps++;
+        if (shouldHalt?.()) {
+          acc = 0;
+          return true;
+        }
       }
+      return false;
     },
     pause(): void {
       paused = true;

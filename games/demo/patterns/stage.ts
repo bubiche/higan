@@ -7,10 +7,11 @@
 // final boss; the run ends when this coroutine RETURNS (after the final boss), not
 // when any single boss is beaten, so a midboss falling just resumes the stage.
 
-import { type StageScript, type StageContext, type EmitterScript, Shape, PLAYFIELD_W } from "higan";
+import { type StageScript, type StageContext, type EmitterScript, type Dialogue, Shape, PLAYFIELD_W } from "higan";
 import { scale } from "../difficulty";
 import { MIDBOSS } from "./midboss";
 import { demoSprites } from "../sprites";
+import { demoPortraits } from "../portraits";
 
 const AMBER: readonly [number, number, number] = [1, 0.75, 0.3];
 const TEAL: readonly [number, number, number] = [0.5, 0.9, 0.85];
@@ -85,10 +86,37 @@ function* popcornLine(ctx: StageContext, n: number, gap: number): Generator<numb
   }
 }
 
+// ── Dialogue (checkpoint 5: portraits + name labels, multi-speaker, pre/post-boss) ──
+// `ctx.dialogue()` is a zero-tick call, so placing it directly before `yield* ctx.boss()`
+// costs no ticks: the boss spawns the SAME tick the box opens (it appears — nameplate +
+// splash — frozen behind the dialogue), which reads as "the gatekeeper appears and speaks"
+// rather than a silent pop-in. A script that wants the box to precede the boss's appearance
+// entirely would `yield` once first; this demo intentionally shows the zero-gap look.
+
+const PRE_BOSS_DIALOGUE: Dialogue = [
+  { name: "Heroine", portrait: demoPortraits.heroine, side: "left", text: "So you're the one blocking the way forward." },
+  { name: "Azure Gatekeeper", portrait: demoPortraits.gatekeeper, side: "right", text: "This gate does not open for the reckless." },
+  { name: "Azure Gatekeeper", portrait: demoPortraits.gatekeeper, side: "right", text: "Prove your resolve — if you can!" },
+];
+
+const POST_BOSS_DIALOGUE: Dialogue = [
+  { name: "Azure Gatekeeper", portrait: demoPortraits.gatekeeper, side: "right", text: "...Impossible. The gate yields." },
+  { text: "The way forward lies open." }, // unattributed narrator line — no name/portrait
+];
+
+// A stage-open line too — before ANY `yield`, so it costs nothing (same zero-tick argument as
+// the boss-adjacent ones) AND makes the freeze/advance mechanic checkable in the first second
+// of a run, without playing through the midboss + waves to reach the final boss.
+const OPENING_DIALOGUE: Dialogue = [
+  { name: "Heroine", portrait: demoPortraits.heroine, text: "Let's see what's waiting up ahead." },
+];
+
 /** Stage 1: opening waves → midboss → more waves → final boss. The enemies + wave
  *  timing ride the (play-dependent) enemy stream; each boss the script runs branches
  *  onto its own protected stream. */
 export const demoStage: StageScript = function* (ctx) {
+  ctx.dialogue(OPENING_DIALOGUE);
+
   // ── Opening waves ──
   // Difficulty scales how many popcorn each line sends (visible density per rank).
   yield* popcornLine(ctx, scale(ctx.difficulty, 5, 1), 40);
@@ -137,5 +165,7 @@ export const demoStage: StageScript = function* (ctx) {
   yield 150;
 
   // ── Final boss ── the stage RETURNS when it falls → run ends "clear".
+  ctx.dialogue(PRE_BOSS_DIALOGUE);
   yield* ctx.boss();
+  ctx.dialogue(POST_BOSS_DIALOGUE);
 };
