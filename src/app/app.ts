@@ -76,10 +76,20 @@ export function runGame(def: GameDefinition): AppHandle {
   const audioManifest = def.assets?.audio;
   const audio: AudioEngine =
     audioManifest && typeof AudioContext !== "undefined"
-      ? createAudioEngine(new AudioContext(), () => ({
-          bgm: save.settings.bgmVolume,
-          sfx: save.settings.sfxVolume,
-        }))
+      ? createAudioEngine(
+          new AudioContext(),
+          () => ({ bgm: save.settings.bgmVolume, sfx: save.settings.sfxVolume }),
+          // Unlock-on-hear: the first time a BGM track actually plays, record it so the
+          // Music room can list it. Deduped before persisting, so a track writes to
+          // localStorage at most once (never per re-assertion) — playing through the game
+          // is what fills the room.
+          (trackId) => {
+            if (!save.unlocks.musicRoom.includes(trackId)) {
+              save.unlocks.musicRoom.push(trackId);
+              persistSave(save);
+            }
+          },
+        )
       : createNullAudioEngine();
 
   // `router` is filled in just below; the getter defers the read until a screen's

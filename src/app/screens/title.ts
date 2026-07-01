@@ -11,6 +11,8 @@ import { createMenu, type Menu } from "../menu";
 import { createCharacterScreen, proceedAfterCharacter } from "./character";
 import { CHARACTER_INDEX } from "../run";
 import { createOptionsScreen } from "./options";
+import { createMusicRoomScreen } from "./musicroom";
+import type { MenuItem } from "../menu";
 
 export function createTitleScreen(shell: Shell): Screen {
   const { overlay, input, def } = shell;
@@ -37,14 +39,21 @@ export function createTitleScreen(shell: Shell): Screen {
       // Carries through character/difficulty select untouched, then the in-game screen
       // switches to the stage theme.
       shell.audio.playBgm(def.assets?.audio?.shell?.title ?? null);
+      // Music room only if the game declares a BGM library — a silent game would open an
+      // empty, dead-end room, so it doesn't get the entry.
+      const hasBgm = Object.keys(def.assets?.audio?.bgm ?? {}).length > 0;
+      const items: MenuItem[] = [
+        { kind: "action", label: "Start", onConfirm: start },
+        ...(hasBgm
+          ? [{ kind: "action" as const, label: "Music Room", onConfirm: () => shell.router.push(createMusicRoomScreen(shell)) }]
+          : []),
+        { kind: "action", label: "Options", onConfirm: () => shell.router.push(createOptionsScreen(shell)) },
+      ];
       menu = createMenu(overlay, {
         title: def.title,
         hint: "↑/↓ select · Z / Enter confirm",
         onSfx: (id) => shell.audio.play(id),
-        items: [
-          { kind: "action", label: "Start", onConfirm: start },
-          { kind: "action", label: "Options", onConfirm: () => shell.router.push(createOptionsScreen(shell)) },
-        ],
+        items,
       });
     },
     exit(): void {

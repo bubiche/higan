@@ -53,6 +53,11 @@ export interface MenuConfig {
    *  a volume slider ticks at its new level), `MenuConfirm`/`MenuCancel` on confirm/back.
    *  Presentation only — screens pass `(id) => shell.audio.play(id)`. */
   onSfx?: (id: SfxId) => void;
+  /** Selection-change sink: fired with the highlighted item's index on every move AND
+   *  once for the initial selection (without an accompanying `MenuMove` — nothing moved).
+   *  Generalizes the `hint` function beyond text; the Music room uses it to play the
+   *  highlighted track. Most menus don't pass it. */
+  onHighlight?: (selectedIndex: number) => void;
 }
 
 export interface Menu {
@@ -90,12 +95,16 @@ export function createMenu(parent: HTMLElement, config: MenuConfig): Menu {
       </div>`;
   };
   render();
+  // Announce the initial selection (no MenuMove — nothing moved). Lets a screen react to
+  // what's highlighted on open, e.g. the Music room starting the first track.
+  config.onHighlight?.(selected);
 
   const move = (dir: number): void => {
     const n = config.items.length;
     selected = (selected + dir + n) % n; // every item is selectable, so just wrap
     render();
     config.onSfx?.(SfxId.MenuMove);
+    config.onHighlight?.(selected);
   };
 
   return {

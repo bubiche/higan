@@ -71,7 +71,17 @@ const MAX_VOICES = 16;
 /** BGM crossfade length in seconds. */
 const BGM_FADE = 0.35;
 
-export function createAudioEngine(audioCtx: AudioContext, volumes: () => AudioVolumes): AudioEngine {
+/**
+ * @param onTrackStart Fired with a track id the instant it ACTUALLY starts playing (inside
+ *   `sync`, not on request) — the true "first heard" moment. The shell wires this to
+ *   unlock-on-hear (Music room). Firing on request would be wrong: the title theme is
+ *   requested before the first user gesture and only truly plays once the context resumes.
+ */
+export function createAudioEngine(
+  audioCtx: AudioContext,
+  volumes: () => AudioVolumes,
+  onTrackStart?: (trackId: string) => void,
+): AudioEngine {
   // ── Master graph ──────────────────────────────────────────────────────────────
   const sfxMaster = audioCtx.createGain();
   sfxMaster.connect(audioCtx.destination);
@@ -193,6 +203,10 @@ export function createAudioEngine(audioCtx: AudioContext, volumes: () => AudioVo
     activeSource = startTrack(sound, inChannel);
     activeChannel = inChannel;
     currentTrack = desiredTrack;
+    // A real track just started playing — report it (unlock-on-hear). Fires only on an
+    // actual transition (this whole block is skipped when the desired track is unchanged),
+    // so it never spams; the shell dedupes before persisting.
+    if (currentTrack !== null) onTrackStart?.(currentTrack);
   };
 
   const playBgm = (trackId: string | null): void => {
