@@ -18,6 +18,7 @@ import type { BulletRenderer } from "../render/bullets";
 import type { LaserRenderer } from "../render/lasers";
 import type { SpriteRenderer } from "../render/atlas";
 import type { BackgroundRenderer } from "../render/background";
+import type { VfxLayer } from "../render/vfx";
 import type { SaveData } from "./save";
 import type { AudioEngine } from "../audio/engine";
 
@@ -58,6 +59,11 @@ export interface Shell {
    *  `background` layers; drawing is a no-op until they have. Presentation-only — never
    *  enters the sim. */
   readonly background: BackgroundRenderer;
+  /** The presentation VFX layer (sparks / screen flash / screen shake), created once by the
+   *  shell and reused across runs. Driven by the in-game screen off the post-step event
+   *  stream; decays every frame in the shell loop, which also turns its shake into a viewport
+   *  offset so the whole field shakes as one. Presentation-only — never enters the sim. */
+  readonly vfx: VfxLayer;
   /** The sound system, created once by the shell (like the renderers) and reused across
    *  runs. A null-object engine when the game is silent or the browser has no Web Audio,
    *  so screens call it unconditionally. Presentation-only — never enters the sim. */
@@ -71,6 +77,11 @@ export interface Shell {
   persist(): void;
   /** Re-apply `save.settings.displayScale` to the canvas (live, no reload). */
   applyDisplayScale(): void;
+  /** Fade the whole viewport through black around a screen change: fades to black, runs `swap`
+   *  (the router change) while hidden, then fades back in. Presentation chrome for flow
+   *  transitions (menu → stage, stage → results); overlays that sit over a frozen screen
+   *  (pause/options) don't use it. Purely DOM — never touches the sim. */
+  transition(swap: () => void): void;
 }
 
 export interface Router {

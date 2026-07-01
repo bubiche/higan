@@ -313,9 +313,10 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
         createContinueScreen(shell, run, { stageIndex: STAGE_INDEX, frames: driver.getRecording().frames }),
       );
     } else {
-      // Clear: hand the final score (read off the sim) to results. The game-over path
-      // goes through the continue prompt instead and carries no score.
-      shell.router.replace(createResultsScreen(shell, outcome, sim.player.score));
+      // Clear: hand the final score (read off the sim) to results, fading through black. The
+      // game-over path instead PUSHES the continue prompt (no fade — it keeps the frozen death
+      // moment visible behind the prompt).
+      shell.transition(() => shell.router.replace(createResultsScreen(shell, outcome, sim.player.score)));
     }
   };
 
@@ -323,6 +324,8 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
     enter(): void {
       input.flush();
       buildDom();
+      // A fresh run shouldn't inherit the previous run's sparks / flash / shake.
+      shell.vfx.reset();
     },
     exit(): void {
       sidebar.innerHTML = "";
@@ -364,7 +367,13 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       //   • paused / a 0-step frame (acc < dt, common at 144Hz) → tick unchanged → skip,
       //     so idle frames don't re-fire the previous tick's stale events (a machine-gun)
       //   • resync / loadRecording → run outside frame() and leave us paused → never play
-      if (driver.tick > t0) shell.audio.playEvents(sim.events);
+      // Both presentation consumers of the post-step event list read it here, under the SAME
+      // forward-advance gate: audio plays the sounds, VFX spawns the sparks/flash/shake. The
+      // gate is what makes a scrub / replay-rebuild fire at most one burst, never a machine-gun.
+      if (driver.tick > t0) {
+        shell.audio.playEvents(sim.events);
+        shell.vfx.consume(sim.events);
+      }
 
       // BGM follows sim STATE, not events: assert the wanted theme every frame (playBgm
       // is idempotent — a no-op unless it actually changed). Keyed on boss PRESENCE
@@ -444,6 +453,11 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
         sprites.drawInstances(playerInstance, 1);
       }
       const drawn = bullets.draw(system.store, system.alive, system.highWater, overlays);
+      // VFX on top of the danmaku: additive glow sparks (reusing the bullet program), then the
+      // full-field flash last of all. Both are no-ops when nothing is live. The shake is applied
+      // by the shell as a viewport offset (it must move every layer, not just this screen).
+      shell.vfx.drawParticles(bullets);
+      shell.vfx.drawFlash();
       hud.update(sim, driver, { beams, drawn, replayStatus });
     },
     hotReloadStage(): void {

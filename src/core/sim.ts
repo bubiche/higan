@@ -241,8 +241,11 @@ export function createStageSim(
   // read-only view). Cleared at the START of each `step`, so it holds exactly one tick.
   // The audio layer reads `sim.events` AFTER the step; the sim never plays a sound.
   const events: SfxEvent[] = [];
-  const emit = (id: SfxId, x?: number, n?: number): void => {
-    events.push({ id, x, n });
+  // `y` is appended LAST (after `n`) so the M7 call sites — which pass `(id)`, `(id, x)`, or
+  // `(id, x, n)` — are unchanged; only the M8 spark-worthy sites add the position. All fields
+  // are presentation-only: the event list is never hashed and `emit` consumes zero RNG.
+  const emit = (id: SfxId, x?: number, n?: number, y?: number): void => {
+    events.push({ id, x, n, y });
   };
 
   const deps: EmitterDeps = {
@@ -469,9 +472,9 @@ export function createStageSim(
     }
     if (award && n > 0) awardCancel(player, n, scoring);
     // SFX (presentation): one event for the WHOLE cleared batch (never per bullet, §h),
-    // whenever bullets were actually cancelled. `cx` is the clear origin (player on a
-    // bomb; player on a full-field phase clear). Zero RNG, not hashed.
-    if (n > 0) emit(SfxId.Cancel, cx, n);
+    // whenever bullets were actually cancelled. `cx`/`cy` are the clear origin (player on a
+    // bomb; player on a full-field phase clear) — pan + sparkle burst. Zero RNG, not hashed.
+    if (n > 0) emit(SfxId.Cancel, cx, n, cy);
     if (radius === 0) system.clear();
   };
 
@@ -680,8 +683,9 @@ export function createStageSim(
         if (killed) {
           spawnDrops(e);
           // SFX (presentation): only a shot-kill sonifies — a fly-off / cull is silent,
-          // mirroring the drop rule. `e.x` for pan. Zero RNG, not hashed.
-          emit(SfxId.EnemyDeath, e.x);
+          // mirroring the drop rule. `e.x` for pan, `e.y` for the death-spark origin.
+          // Zero RNG, not hashed.
+          emit(SfxId.EnemyDeath, e.x, undefined, e.y);
         }
         enemies.despawn(slot);
         em.done = true;
@@ -703,7 +707,8 @@ export function createStageSim(
     if (player.graze > grazeBefore) {
       const grazeDelta = player.graze - grazeBefore;
       awardGraze(player, grazeDelta, scoring);
-      emit(SfxId.Graze, player.x, grazeDelta); // SFX (presentation): zero RNG, not hashed
+      // SFX (presentation): zero RNG, not hashed. `player.y` places the graze sparkle.
+      emit(SfxId.Graze, player.x, grazeDelta, player.y);
     }
     // 7. Death/bomb lifecycle consumes the hit. A bomb (or deathbomb) clears the
     //    field; the clear is done here so the lifecycle step stays free of the
@@ -714,9 +719,9 @@ export function createStageSim(
     // distinguishes a panic deathbomb from an ordinary bomb. `clearField` and `lifeLost`
     // are mutually exclusive in a tick (a successful bomb leaves the Dying state), so
     // order is immaterial.
-    if (lifeLost) emit(SfxId.Pichuun, player.x);
+    if (lifeLost) emit(SfxId.Pichuun, player.x, undefined, player.y);
     if (clearField) {
-      emit(deathbomb ? SfxId.PlayerDeathBomb : SfxId.Bomb, player.x);
+      emit(deathbomb ? SfxId.PlayerDeathBomb : SfxId.Bomb, player.x, undefined, player.y);
       // A bomb/deathbomb runs the active character's bomb (its `BombConfig`): cancel the
       // field — wholly (radius 0) or within the bomb's radius of the player — converting it
       // to point-items + score; optionally nuke every beam and vacuum every item (including
@@ -752,7 +757,7 @@ export function createStageSim(
     const collected = stepItemCollection(items, player, MAX_POWER, scoring, itemCfg);
     // SFX (presentation): batched to one/tick (per-type ids are a deferred seam — §13);
     // `n` carries the count. Player x for pan (items home to the player). Zero RNG.
-    if (collected > 0) emit(SfxId.ItemCollect, player.x, collected);
+    if (collected > 0) emit(SfxId.ItemCollect, player.x, collected, player.y);
 
     // 9. Extends: every score-threshold the run has crossed this tick grants a life.
     //    Runs last, after every award this tick (point items, graze, spell capture,

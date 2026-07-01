@@ -43,14 +43,20 @@ export enum SfxId {
 }
 
 /**
- * One sound to play, with optional presentation-only hints. `x`/`n` carry data the sim
- * already computed; they are NEVER read back into sim logic.
+ * One presentation cue, with optional presentation-only hints. `x`/`y`/`n` carry data the
+ * sim already computed; they are NEVER read back into sim logic. The audio layer reads `x`
+ * (pan) and `n` (intensity); the VFX layer additionally reads `y` to place sparks at the
+ * event's playfield point. Both consume the SAME list after the step — see `render/vfx.ts`
+ * and `audio/engine.ts`. Every field is optional so the sim's emit sites stay terse.
  */
 export interface SfxEvent {
   readonly id: SfxId;
-  /** Playfield x of the source, for stereo pan. Omit (undefined) → centre. */
+  /** Playfield x of the source, for stereo pan (audio) and spark origin (VFX). Omit → centre. */
   readonly x?: number;
+  /** Playfield y of the source, for the spark origin (VFX). Omit → the field centre height.
+   *  Audio ignores it. Added for M8 VFX; kept optional so the M7 emit sites didn't churn. */
+  readonly y?: number;
   /** Batched count (e.g. bullets cancelled, items collected) for optional intensity
-   *  scaling. Presentation-only. */
+   *  scaling (louder SFX / a bigger spark burst). Presentation-only. */
   readonly n?: number;
 }

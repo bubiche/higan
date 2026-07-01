@@ -17,6 +17,7 @@ import { createBulletRenderer } from "../render/bullets";
 import { createLaserRenderer } from "../render/lasers";
 import { createSpriteRenderer } from "../render/atlas";
 import { createBackgroundRenderer } from "../render/background";
+import { createVfx } from "../render/vfx";
 import { SIM_CAPACITY, LASER_CAPACITY, ENEMY_CAPACITY, ITEM_CAPACITY } from "../core/sim";
 import { PLAYFIELD_W, PLAYFIELD_H } from "../core/playfield";
 import { createShellInput, type ShellInput } from "./keyboard";
@@ -73,6 +74,22 @@ export function runGame(def: GameDefinition): AppHandle {
   resize();
   window.addEventListener("resize", resize);
 
+  // Full-viewport fade overlay for flow transitions (menu → stage, stage → results). A single
+  // DOM element the shell owns; `shell.transition` drives its opacity. `pointer-events: none`
+  // so it never eats a keypress, high z-index so it sits over the field and the sidebar.
+  const screenFade = document.createElement("div");
+  screenFade.id = "screen-fade";
+  Object.assign(screenFade.style, {
+    position: "fixed",
+    inset: "0",
+    background: "#04060c",
+    opacity: "0",
+    pointerEvents: "none",
+    zIndex: "50",
+    transition: "opacity 170ms ease",
+  });
+  document.body.appendChild(screenFade);
+
   const input = createShellInput(() => save.settings.keybinds);
   const bullets = createBulletRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, SIM_CAPACITY);
   const lasers = createLaserRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, LASER_CAPACITY);
@@ -89,6 +106,9 @@ export function runGame(def: GameDefinition): AppHandle {
   // non-throwing). A game with no `background` on any stage simply draws nothing.
   const background = createBackgroundRenderer(gl, PLAYFIELD_W, PLAYFIELD_H);
   void background.load(collectBackgroundLayers(def));
+  // The presentation VFX layer (sparks / flash / shake). Created once and reused across runs;
+  // content-agnostic (it reacts to sim events, not to any game's data), so nothing to load.
+  const vfx = createVfx(gl);
 
   // The sound system, created once (like the renderers) and reused across runs. A silent
   // game (no audio manifest) or a browser without Web Audio gets a no-op engine, so
@@ -127,6 +147,7 @@ export function runGame(def: GameDefinition): AppHandle {
     lasers,
     sprites,
     background,
+    vfx,
     audio,
     get def(): GameDefinition {
       return currentDef;
@@ -140,6 +161,16 @@ export function runGame(def: GameDefinition): AppHandle {
     },
     applyDisplayScale(): void {
       resize();
+    },
+    transition(swap: () => void): void {
+      // Fade to black → swap while hidden → fade back in. A timer (not `transitionend`) sequences
+      // it so a re-entrant call during a fade can never leave the overlay stuck opaque; the
+      // delay just outlasts the CSS transition so the swap lands at (near) full black.
+      screenFade.style.opacity = "1";
+      window.setTimeout(() => {
+        swap();
+        screenFade.style.opacity = "0";
+      }, 180);
     },
   };
   router = createRouter(createTitleScreen(shell));
@@ -159,11 +190,29 @@ export function runGame(def: GameDefinition): AppHandle {
 
   const loop = startAnimationLoop((dtSeconds) => {
     router.frame(dtSeconds);
+    // Decay the VFX layer on wall time, every frame — sparks fade and the shake settles
+    // regardless of the sim's timestep (the in-game screen SPAWNS them, gated on a forward
+    // advance; the shell DECAYS them here). Screens that don't use VFX just tick a settled
+    // layer, a no-op.
+    vfx.update(dtSeconds);
     // One clear per frame, then the stack draws over it (an overlay renders above
     // the frozen screen beneath). The driver advanced the sim in `frame`; drawing
     // is unconditional so a paused/stepped sim still shows on the next frame.
     gl.clearColor(0.008, 0.012, 0.04, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
+    // Screen shake: offset the whole field by nudging the GL viewport (in device pixels) so
+    // every pass — background, beams, sprites, bullets, flash — shifts together as one image
+    // (a per-layer uniform would tear them apart). The clear ignores the viewport, so it still
+    // fills the canvas; only the draws shift. `shakeOffset` returns `[0, 0]` once settled, which
+    // is exactly the resize default — so this self-resets with no cleanup.
+    const [sx, sy] = vfx.shakeOffset();
+    if (sx !== 0 || sy !== 0) {
+      const ppx = canvas.width / PLAYFIELD_W;
+      const ppy = canvas.height / PLAYFIELD_H;
+      gl.viewport(Math.round(sx * ppx), Math.round(sy * ppy), canvas.width, canvas.height);
+    } else {
+      gl.viewport(0, 0, canvas.width, canvas.height);
+    }
     router.render();
   });
 

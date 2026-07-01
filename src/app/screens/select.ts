@@ -48,9 +48,11 @@ export function createSelectScreen(shell: Shell, character: number): Screen {
           kind: "action",
           label: d.label,
           // The chosen rank is this entry's index; the character was chosen upstream. A
-          // fresh controller starts a clean run with both.
+          // fresh controller starts a clean run with both. Fade through black into the stage.
           onConfirm: () =>
-            shell.router.replace(createInGameScreen(shell, createRunController(shell.def, rank, character))),
+            shell.transition(() =>
+              shell.router.replace(createInGameScreen(shell, createRunController(shell.def, rank, character))),
+            ),
         })),
       });
     },
