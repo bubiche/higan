@@ -19,6 +19,7 @@ import type { RunConfig } from "./config";
 import type { PlayerConfig } from "../touhou/player";
 import type { ShotConfig } from "../touhou/shot";
 import type { BombConfig } from "../touhou/bomb";
+import type { AssetManifest } from "./audio";
 
 /**
  * One stage of a game. The `script` is the scene root: a coroutine (boss idiom) that
@@ -34,6 +35,11 @@ export interface StageDef {
   readonly script: StageScript;
   /** The stage's headline boss, run by `ctx.boss()` with no argument, if any. */
   readonly boss?: BossScript;
+  /** BGM for the stage, as track ids into `assets.audio.bgm`: `stage` plays during the
+   *  stage, `boss` (if given) during a boss encounter. Presentation-only — the in-game
+   *  screen reads sim state and asserts the theme; the sim never sees this. Omit for a
+   *  silent stage. */
+  readonly music?: { readonly stage: string; readonly boss?: string };
 }
 
 /** A playable character: its movement/life tuning plus its shot and bomb definitions. */
@@ -85,6 +91,10 @@ export interface GameDefinition {
   /** Run rules — scoring economy, item tuning, continues. Construction input (not
    *  hashed); `DEFAULT_RUN_CONFIG` is a ready default a game can use or override. */
   readonly config: RunConfig;
+  /** Presentation assets (audio now; sprites/backgrounds later). Optional — a game with
+   *  none is silent-but-valid, and the headless/determinism paths never touch it (it is
+   *  presentation, outside the sim). */
+  readonly assets?: AssetManifest;
 }
 
 /**

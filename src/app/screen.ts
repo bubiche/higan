@@ -17,6 +17,7 @@ import type { ShellInput } from "./keyboard";
 import type { BulletRenderer } from "../render/bullets";
 import type { LaserRenderer } from "../render/lasers";
 import type { SaveData } from "./save";
+import type { AudioEngine } from "../audio/engine";
 
 export interface Screen {
   /** Called when this screen becomes active (build DOM, create the sim, etc.). */
@@ -45,6 +46,10 @@ export interface Shell {
   readonly input: ShellInput;
   readonly bullets: BulletRenderer;
   readonly lasers: LaserRenderer;
+  /** The sound system, created once by the shell (like the renderers) and reused across
+   *  runs. A null-object engine when the game is silent or the browser has no Web Audio,
+   *  so screens call it unconditionally. Presentation-only — never enters the sim. */
+  readonly audio: AudioEngine;
   readonly def: GameDefinition;
   readonly router: Router;
   /** The in-memory save document. Options edits `save.settings` in place, then calls

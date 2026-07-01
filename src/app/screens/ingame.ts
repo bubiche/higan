@@ -335,6 +335,16 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
 
       driver.frame(dtSeconds);
 
+      // BGM follows sim STATE, not events: assert the wanted theme every frame (playBgm
+      // is idempotent — a no-op unless it actually changed). Keyed on boss PRESENCE
+      // (`sim.boss` non-null for the whole encounter), NOT `.active` (which drops during
+      // inter-phase gaps and would churn stage↔boss on every phase transition). Because
+      // it is a state read, it follows scrub / step-back for free. Read `music` fresh
+      // from `shell.def` so a hot-reload that adds/edits it takes effect. Omitted → the
+      // screen leaves whatever's playing (a silent stage doesn't force silence).
+      const music = shell.def.stages[STAGE_INDEX]?.music;
+      if (music) shell.audio.playBgm(sim.boss ? (music.boss ?? music.stage) : music.stage);
+
       // Transition only during live play — never while paused/stepping/scrubbing or
       // sitting at the end of a loaded replay, so the debugger can inspect an ended
       // run without being bounced to results. Game-over wins ties: a dead player ends

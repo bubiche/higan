@@ -54,6 +54,17 @@ export {
 export { DEFAULT_SHOT_CONFIG, type ShotConfig } from "../touhou/shot";
 export { DEFAULT_BOMB_CONFIG, type BombConfig } from "../touhou/bomb";
 
+// Audio authoring surface. `SfxId` is the sound vocabulary the sim emits against (an
+// author provides the SOUND for an id; the engine owns WHEN it plays). The loader-slot
+// types declare sound as data (`synth` now, `url` later — a one-line swap). `bgmLoop`
+// is the engine's synth toolkit for composing functional placeholder BGM with no audio
+// files. The engine ships a default sound per SfxId, but NO stock BGM — music is game
+// identity, so a game composes its own tracks (docs/M7-PLAN.md §0.4).
+export { SfxId } from "../core/events";
+export type { SfxEvent } from "../core/events";
+export type { SoundSource, SynthGen, BgmTrack, AudioManifest, AssetManifest } from "./audio";
+export { bgmLoop, type BgmSpec } from "../audio/synth";
+
 export {
   linear,
   accelerate,

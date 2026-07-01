@@ -33,6 +33,10 @@ export function createTitleScreen(shell: Shell): Screen {
     enter(): void {
       // Drop the keypress that brought us here so it isn't re-read as a confirm.
       input.flush();
+      // Title/menu BGM (idempotent; `null` = fade to silence if the game names none).
+      // Carries through character/difficulty select untouched, then the in-game screen
+      // switches to the stage theme.
+      shell.audio.playBgm(def.assets?.audio?.shell?.title ?? null);
       menu = createMenu(overlay, {
         title: def.title,
         hint: "↑/↓ select · Z / Enter confirm",

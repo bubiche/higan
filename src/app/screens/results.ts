@@ -27,6 +27,8 @@ export function createResultsScreen(shell: Shell, outcome: RunOutcome, score?: n
   return {
     enter(): void {
       input.flush();
+      // Results BGM (idempotent; `null` = silence if the game names none).
+      shell.audio.playBgm(shell.def.assets?.audio?.shell?.results ?? null);
       el = document.createElement("div");
       el.className = "menu-screen";
       el.innerHTML = `

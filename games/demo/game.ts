@@ -18,6 +18,7 @@ import {
 } from "higan";
 import { DEMO_BOSS } from "./patterns/boss";
 import { demoStage } from "./patterns/stage";
+import { demoAudio } from "./audio";
 
 // Two reference characters — authored content (a different game defines its own with
 // zero engine change). They differ in BOTH halves of the offense: the shot (how you
@@ -71,7 +72,7 @@ const FOCUS_BOMB: BombConfig = {
 export const demoGame = defineGame({
   title: "HIGAN",
   seed: 0x1a9e,
-  stages: [{ id: "stage-1", script: demoStage, boss: DEMO_BOSS }],
+  stages: [{ id: "stage-1", script: demoStage, boss: DEMO_BOSS, music: { stage: "stage1", boss: "boss1" } }],
   // Two characters: Spread (default defensive bomb — omitted, so it uses the engine
   // default) and Focus (an explicit offensive bomb). Both share the run's player config;
   // a different game would tune lives/speed per character too.
@@ -92,4 +93,8 @@ export const demoGame = defineGame({
   // The reference game uses the engine's default run rules (scoring economy, item
   // tuning, continues). A real game spreads these and overrides what it wants.
   config: DEFAULT_RUN_CONFIG,
+  // Presentation assets — the game's own BGM tracks (see ./audio). SFX use the engine
+  // defaults (no override map). Outside the sim: adding this doesn't touch any
+  // determinism baseline or the replay configId (which fingerprints only gameplay data).
+  assets: { audio: demoAudio },
 });

@@ -21,6 +21,7 @@ import { createShellInput, type ShellInput } from "./keyboard";
 import { createRouter, type Router, type Shell } from "./screen";
 import { createTitleScreen } from "./screens/title";
 import { loadSave, persistSave, clampDisplayScale } from "./save";
+import { createAudioEngine, createNullAudioEngine, type AudioEngine } from "../audio/engine";
 import type { GameDefinition } from "../api/game";
 
 export interface AppHandle {
@@ -67,6 +68,20 @@ export function runGame(def: GameDefinition): AppHandle {
   const bullets = createBulletRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, SIM_CAPACITY);
   const lasers = createLaserRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, LASER_CAPACITY);
 
+  // The sound system, created once (like the renderers) and reused across runs. A silent
+  // game (no audio manifest) or a browser without Web Audio gets a no-op engine, so
+  // screens call `shell.audio.*` unconditionally. Volumes are read fresh from the save so
+  // Options can re-apply them live. Built from the INITIAL def's manifest — audio is not
+  // re-preloaded on a content hot-reload (editing a boss pattern doesn't change sound).
+  const audioManifest = def.assets?.audio;
+  const audio: AudioEngine =
+    audioManifest && typeof AudioContext !== "undefined"
+      ? createAudioEngine(new AudioContext(), () => ({
+          bgm: save.settings.bgmVolume,
+          sfx: save.settings.sfxVolume,
+        }))
+      : createNullAudioEngine();
+
   // `router` is filled in just below; the getter defers the read until a screen's
   // frame/enter runs (after assignment), breaking the shell↔screen construction cycle.
   let router!: Router;
@@ -78,6 +93,7 @@ export function runGame(def: GameDefinition): AppHandle {
     input,
     bullets,
     lasers,
+    audio,
     get def(): GameDefinition {
       return currentDef;
     },
@@ -93,6 +109,19 @@ export function runGame(def: GameDefinition): AppHandle {
     },
   };
   router = createRouter(createTitleScreen(shell));
+
+  // Browsers suspend an AudioContext until a user gesture; resume on the first key/click
+  // (one-shot, then unbind). Any BGM a screen requested before then (the title theme)
+  // starts the moment the context resumes. Both no-ops for the null engine.
+  const kickAudio = (): void => {
+    audio.resume();
+    window.removeEventListener("keydown", kickAudio);
+    window.removeEventListener("pointerdown", kickAudio);
+  };
+  window.addEventListener("keydown", kickAudio);
+  window.addEventListener("pointerdown", kickAudio);
+  // Resolve every sound to a buffer up front (async, non-throwing). No-op if silent.
+  if (audioManifest) audio.preload(audioManifest);
 
   const loop = startAnimationLoop((dtSeconds) => {
     router.frame(dtSeconds);
@@ -113,6 +142,8 @@ export function runGame(def: GameDefinition): AppHandle {
     stop(): void {
       loop.stop();
       window.removeEventListener("resize", resize);
+      window.removeEventListener("keydown", kickAudio);
+      window.removeEventListener("pointerdown", kickAudio);
       input.dispose();
     },
   };
