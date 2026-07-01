@@ -12,6 +12,7 @@
 // themselves on this screen by remapping the keys they'd use to escape it.
 
 import type { Screen, Shell } from "../screen";
+import { SfxId } from "../../core/events";
 import { ACTIONS, DEFAULT_BINDINGS, keyDisplayName, type GameAction } from "../bindings";
 
 const UP = new Set(["ArrowUp", "KeyW"]);
@@ -60,11 +61,13 @@ export function createRebindScreen(shell: Shell): Screen {
   const capture = (code: string): void => {
     const action = capturing!;
     if (code === "Escape") {
+      shell.audio.play(SfxId.MenuCancel);
       capturing = null;
       message = null;
       render();
       return;
     }
+    shell.audio.play(SfxId.MenuConfirm);
     const owner = ACTIONS.find((a) => binds[a.action] === code)?.action ?? null;
     const old = binds[action];
     binds[action] = code;
@@ -104,6 +107,7 @@ export function createRebindScreen(shell: Shell): Screen {
     selected = (selected + dir + rows.length) % rows.length;
     message = null;
     render();
+    shell.audio.play(SfxId.MenuMove);
   };
 
   return {
@@ -127,9 +131,11 @@ export function createRebindScreen(shell: Shell): Screen {
         if (UP.has(code)) move(-1);
         else if (DOWN.has(code)) move(1);
         else if (CONFIRM.has(code)) {
+          shell.audio.play(SfxId.MenuConfirm);
           rows[selected]!.onConfirm();
           return; // may have entered capture or popped this screen
         } else if (CANCEL.has(code)) {
+          shell.audio.play(SfxId.MenuCancel);
           shell.router.pop();
           return;
         }

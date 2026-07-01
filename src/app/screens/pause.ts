@@ -47,6 +47,7 @@ export function createPauseScreen(shell: Shell, run: RunController): Screen {
         title: "PAUSED",
         hint: "↑/↓ select · Z confirm · Esc resume",
         onCancel: resume,
+        onSfx: (id) => shell.audio.play(id),
         items: [
           { kind: "action", label: "Resume", onConfirm: resume },
           { kind: "action", label: "Retry", onConfirm: retry },

@@ -57,6 +57,7 @@ export function createContinueScreen(shell: Shell, run: RunController, lastPlay:
         title: "GAME OVER",
         hint: remaining > 0 ? "↑/↓ select · Z confirm" : "No continues left · Z to end",
         onCancel: giveUp,
+        onSfx: (id) => shell.audio.play(id),
         items,
       });
     },

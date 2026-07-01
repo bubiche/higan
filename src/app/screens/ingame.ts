@@ -16,6 +16,7 @@ import { createPauseScreen } from "./pause";
 import { createContinueScreen } from "./continue";
 import { createHud, type Hud } from "../hud";
 import { createStageSim, type Simulation, SHOT_CAPACITY, ENEMY_CAPACITY, ITEM_CAPACITY } from "../../core/sim";
+import { SfxId } from "../../core/events";
 import { mixSeed } from "../../core/prng";
 import { createSimDriver, type SimDriver } from "../../core/runtime";
 import { DT } from "../../core/playfield";
@@ -316,6 +317,10 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       sidebar.innerHTML = "";
     },
     frame(dtSeconds: number): void {
+      // Capture the tick at the TOP, before the debugger-key loop can single-step or
+      // step back: SFX play iff the sim actually advanced FORWARD this frame (below).
+      const t0 = driver.tick;
+
       // Debugger controls drive the LOOP, not the sim — kept out of the input log
       // so they can never poison a replay.
       for (const code of input.takeEvents()) {
@@ -324,6 +329,7 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
           // the sim so no extra tick runs this frame and end-detection can't fire
           // into the just-pushed pause screen (which would corrupt the stack). The
           // controller goes too, so Retry can start a fresh run at the same rank.
+          shell.audio.play(SfxId.Pause);
           shell.router.push(createPauseScreen(shell, run));
           return;
         }
@@ -334,6 +340,16 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       }
 
       driver.frame(dtSeconds);
+
+      // SFX follow the sim's EVENTS, gated on a real forward advance: `sim.events` holds
+      // only the last stepped tick's sounds (cleared at each step start), so play them
+      // iff the tick moved forward this frame. Strictly `>`, which collapses every case:
+      //   • live play / single-step forward → tick rose → play that tick's SFX
+      //   • step-back → tick fell → skip (this is why it's `>`, not `!==`)
+      //   • paused / a 0-step frame (acc < dt, common at 144Hz) → tick unchanged → skip,
+      //     so idle frames don't re-fire the previous tick's stale events (a machine-gun)
+      //   • resync / loadRecording → run outside frame() and leave us paused → never play
+      if (driver.tick > t0) shell.audio.playEvents(sim.events);
 
       // BGM follows sim STATE, not events: assert the wanted theme every frame (playBgm
       // is idempotent — a no-op unless it actually changed). Keyed on boss PRESENCE

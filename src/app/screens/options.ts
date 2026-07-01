@@ -26,6 +26,9 @@ export function createOptionsScreen(shell: Shell): Screen {
 
   const setVolume = (key: "bgmVolume" | "sfxVolume", delta: number): void => {
     save.settings[key] = round1(Math.max(0, Math.min(1, save.settings[key] + delta)));
+    // Live-apply so the change is audible immediately (mirrors applyDisplayScale); the
+    // menu's post-tweak MenuMove tick then plays at the new SFX level. Persist last.
+    shell.audio.applyVolumes();
     shell.persist();
   };
   const setScale = (delta: number): void => {
@@ -43,6 +46,7 @@ export function createOptionsScreen(shell: Shell): Screen {
         title: "OPTIONS",
         hint: "←/→ adjust · Z select · Esc/X back",
         onCancel: back,
+        onSfx: (id) => shell.audio.play(id),
         items: [
           {
             kind: "value",

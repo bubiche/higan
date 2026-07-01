@@ -45,6 +45,7 @@ export function createCharacterScreen(shell: Shell): Screen {
         title: "CHARACTER",
         hint: "↑/↓ select · Z confirm · X back",
         onCancel: () => shell.router.replace(createTitleScreen(shell)),
+        onSfx: (id) => shell.audio.play(id),
         items: characters.map((c, index) => ({
           kind: "action",
           // No display-name field on CharacterDef yet (kept minimal) — the id IS the label.

@@ -43,6 +43,7 @@ export function createSelectScreen(shell: Shell, character: number): Screen {
           shell.router.replace(
             shell.def.characters.length > 1 ? createCharacterScreen(shell) : createTitleScreen(shell),
           ),
+        onSfx: (id) => shell.audio.play(id),
         items: difficulties.map((d, rank) => ({
           kind: "action",
           label: d.label,

@@ -96,11 +96,18 @@ function sfx(durationSec: number, render: (ctx: OfflineAudioContext) => void): S
 // Each is short, distinct, and cheap. A game overrides any id via the manifest's `sfx`
 // map; every id it omits uses the default here, so a game that authors zero SFX still
 // has the full set. Descriptions track docs/M7-PLAN.md §10.
+//
+// MIX (relative loudness): the RAPID-FIRE sounds — Shoot (every few ticks), Graze,
+// EnemyHit, ItemCollect — are kept deliberately quiet so a steady stream of them sits
+// UNDER the BGM (the BGM's own voices are pre-attenuated ~2× by `bgmLoop`'s internal
+// level, so an un-attenuated SFX at the same nominal gain reads much louder). The
+// PUNCTUATION sounds (Bomb, EnemyDeath, spells, Pichuun, Extend) stay prominent — they
+// fire rarely and are meant to be heard over everything.
 export const DEFAULT_SFX: Record<SfxId, SynthGen> = {
   // gameplay
-  [SfxId.Shoot]: sfx(0.12, (c) => osc(c, c.destination, { at: 0, dur: 0.08, freq: 880, freqEnd: 440, type: "square", gain: 0.16 })),
-  [SfxId.Graze]: sfx(0.1, (c) => osc(c, c.destination, { at: 0, dur: 0.06, freq: 2400, type: "sine", gain: 0.18 })),
-  [SfxId.EnemyHit]: sfx(0.08, (c) => osc(c, c.destination, { at: 0, dur: 0.05, freq: 520, freqEnd: 360, type: "square", gain: 0.12 })),
+  [SfxId.Shoot]: sfx(0.12, (c) => osc(c, c.destination, { at: 0, dur: 0.08, freq: 880, freqEnd: 440, type: "square", gain: 0.06 })),
+  [SfxId.Graze]: sfx(0.1, (c) => osc(c, c.destination, { at: 0, dur: 0.06, freq: 2400, type: "sine", gain: 0.1 })),
+  [SfxId.EnemyHit]: sfx(0.08, (c) => osc(c, c.destination, { at: 0, dur: 0.05, freq: 520, freqEnd: 360, type: "square", gain: 0.07 })),
   [SfxId.EnemyDeath]: sfx(0.32, (c) => {
     noise(c, c.destination, { at: 0, dur: 0.28, gain: 0.32, cutoff: 3200 });
     osc(c, c.destination, { at: 0, dur: 0.26, freq: 420, freqEnd: 90, type: "triangle", gain: 0.22 });
@@ -119,8 +126,8 @@ export const DEFAULT_SFX: Record<SfxId, SynthGen> = {
     notes.forEach((m, i) => osc(c, c.destination, { at: i * 0.06, dur: 0.4, freq: mtof(m), type: "triangle", gain: 0.16 }));
   }),
   [SfxId.ItemCollect]: sfx(0.14, (c) => {
-    osc(c, c.destination, { at: 0, dur: 0.05, freq: mtof(84), type: "square", gain: 0.12 });
-    osc(c, c.destination, { at: 0.05, dur: 0.06, freq: mtof(88), type: "square", gain: 0.12 });
+    osc(c, c.destination, { at: 0, dur: 0.05, freq: mtof(84), type: "square", gain: 0.06 });
+    osc(c, c.destination, { at: 0.05, dur: 0.06, freq: mtof(88), type: "square", gain: 0.06 });
   }),
   [SfxId.Extend]: sfx(0.5, (c) => {
     // celebratory ascending arpeggio

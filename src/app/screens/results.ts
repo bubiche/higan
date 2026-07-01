@@ -10,6 +10,7 @@
 // composes with the per-screen container model the menus use.
 
 import type { Screen, Shell } from "../screen";
+import { SfxId } from "../../core/events";
 import { createTitleScreen } from "./title";
 
 const CONFIRM = new Set(["KeyZ", "Enter", "NumpadEnter"]);
@@ -45,6 +46,9 @@ export function createResultsScreen(shell: Shell, outcome: RunOutcome, score?: n
     frame(): void {
       for (const code of input.takeEvents()) {
         if (CONFIRM.has(code)) {
+          // Bespoke screen (no createMenu), so it fires its own UI SFX — else it would be
+          // the one silent confirm next to the clicky menus.
+          shell.audio.play(SfxId.MenuConfirm);
           router.replace(createTitleScreen(shell));
           return;
         }

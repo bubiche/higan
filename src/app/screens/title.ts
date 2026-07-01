@@ -40,6 +40,7 @@ export function createTitleScreen(shell: Shell): Screen {
       menu = createMenu(overlay, {
         title: def.title,
         hint: "↑/↓ select · Z / Enter confirm",
+        onSfx: (id) => shell.audio.play(id),
         items: [
           { kind: "action", label: "Start", onConfirm: start },
           { kind: "action", label: "Options", onConfirm: () => shell.router.push(createOptionsScreen(shell)) },

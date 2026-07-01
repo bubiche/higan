@@ -11,6 +11,8 @@
 // Pure presentation: it reads discrete key presses (passed in by the screen) and
 // mutates DOM. It never enters the simulation or its hash.
 
+import { SfxId } from "../core/events";
+
 const UP = new Set(["ArrowUp", "KeyW"]);
 const DOWN = new Set(["ArrowDown", "KeyS"]);
 const LEFT = new Set(["ArrowLeft", "KeyA"]);
@@ -47,6 +49,10 @@ export interface MenuConfig {
   hint?: string | ((selectedIndex: number) => string);
   /** Cancel (Esc / X) — e.g. resume from pause, back out of options. */
   onCancel?: () => void;
+  /** UI SFX sink. The widget fires `MenuMove` on navigation (and on a value tweak, so
+   *  a volume slider ticks at its new level), `MenuConfirm`/`MenuCancel` on confirm/back.
+   *  Presentation only — screens pass `(id) => shell.audio.play(id)`. */
+  onSfx?: (id: SfxId) => void;
 }
 
 export interface Menu {
@@ -89,6 +95,7 @@ export function createMenu(parent: HTMLElement, config: MenuConfig): Menu {
     const n = config.items.length;
     selected = (selected + dir + n) % n; // every item is selectable, so just wrap
     render();
+    config.onSfx?.(SfxId.MenuMove);
   };
 
   return {
@@ -103,20 +110,29 @@ export function createMenu(parent: HTMLElement, config: MenuConfig): Menu {
           if (item?.kind === "value") {
             item.left();
             render();
+            // After the tweak — so a volume slider's tick plays at its NEW level.
+            config.onSfx?.(SfxId.MenuMove);
           }
         } else if (RIGHT.has(code)) {
           if (item?.kind === "value") {
             item.right();
             render();
+            config.onSfx?.(SfxId.MenuMove);
           }
         } else if (CONFIRM.has(code)) {
           if (item?.kind === "action") {
+            config.onSfx?.(SfxId.MenuConfirm);
             item.onConfirm();
             return; // may have torn down this screen
           }
         } else if (CANCEL.has(code)) {
-          config.onCancel?.();
-          return; // ditto
+          // Sound only a real cancel (some menus have none, e.g. the title); the press is
+          // still consumed either way, preserving the prior return-on-cancel behaviour.
+          if (config.onCancel) {
+            config.onSfx?.(SfxId.MenuCancel);
+            config.onCancel();
+          }
+          return;
         }
       }
     },
