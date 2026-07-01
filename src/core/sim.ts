@@ -648,8 +648,9 @@ export function createStageSim(
     //     Run AFTER stepRunning so a boss coroutine read this tick's pre-drain HP (the
     //     one-tick transition lag, see api/boss.ts).
     shots.update(dt);
-    const enemyHits = stepEnemyShotCollision(enemies, shots);
-    if (enemyHits > 0) emit(SfxId.EnemyHit, undefined, enemyHits); // batched: one/tick
+    const { hits: enemyHits, x: hitX, y: hitY } = stepEnemyShotCollision(enemies, shots);
+    // Batched: one event/tick, at the last impact point (pan + hit-spark). Presentation only.
+    if (enemyHits > 0) emit(SfxId.EnemyHit, hitX, enemyHits, hitY);
     if (bossRoot && bossState.active && bossState.hp > 0 && player.state !== PlayerState.GameOver) {
       const dmg = stepShotCollision(shots, {
         x: BOSS_ORIGIN_X,
@@ -659,6 +660,11 @@ export function createStageSim(
       if (dmg > 0) {
         bossState.hp -= dmg;
         if (bossState.hp < 0) bossState.hp = 0;
+        // Hit feedback at the boss (presentation): the same quiet EnemyHit tick + spark as
+        // popcorn. It fires most ticks of the fight, but the audio layer throttles the sound
+        // per-id (so it's a shimmer, not a buzz) and the VFX spark is small/short. Zero RNG,
+        // not hashed — it's the SAME presentation-after-the-step discipline as every other event.
+        emit(SfxId.EnemyHit, BOSS_ORIGIN_X, undefined, BOSS_ORIGIN_Y);
       }
     }
     // 4c. Enemy teardown — the deterministic death seam. An enemy dies on hp<=0

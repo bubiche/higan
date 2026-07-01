@@ -134,10 +134,22 @@ export function createEnemySystem(capacity = 64): EnemySystem {
  * Returns how many shots landed this tick so the caller can raise a single (batched)
  * presentation event; the count is not read by any hashed logic.
  */
-export function stepEnemyShotCollision(enemies: EnemySystem, shots: ShotSystem): number {
+/** Result of a shot-vs-enemy sweep: how many shots landed, and where the LAST one landed —
+ *  a representative impact point for a presentation hit-spark. The position is meaningful only
+ *  when `hits > 0`; it is a pure by-product read off already-computed state, so it changes
+ *  nothing in the sim (the event list that carries it is never hashed). */
+export interface EnemyShotHits {
+  readonly hits: number;
+  readonly x: number;
+  readonly y: number;
+}
+
+export function stepEnemyShotCollision(enemies: EnemySystem, shots: ShotSystem): EnemyShotHits {
   const pool = enemies.enemies;
   const sp = shots.shots;
   let hits = 0;
+  let hx = 0;
+  let hy = 0;
   for (let i = 0; i < sp.length; i++) {
     const s = sp[i];
     if (!s.alive) continue;
@@ -151,9 +163,11 @@ export function stepEnemyShotCollision(enemies: EnemySystem, shots: ShotSystem):
         e.hp -= s.damage;
         shots.despawn(i);
         hits++;
+        hx = e.x; // last impact point — the spark origin (presentation only)
+        hy = e.y;
         break; // the shot is spent on the first enemy it hits
       }
     }
   }
-  return hits;
+  return { hits, x: hx, y: hy };
 }

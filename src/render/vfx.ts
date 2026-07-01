@@ -237,6 +237,12 @@ export function createVfx(gl: WebGL2RenderingContext): VfxLayer {
             burst(x, y, n, 60, 150, 2.6, 0.55, 0.9, 1.0, 0.35, 0.6, Shape.Star, 2.2);
             break;
           }
+          case SfxId.EnemyHit:
+            // Chip feedback where shots land — on popcorn AND the boss. Kept tiny + brief so
+            // the near-every-tick stream while damaging the boss reads as a shimmer, not clutter
+            // (the bigger EnemyDeath pop is the kill). Yellow-white flecks.
+            burst(x, y, 2, 25, 70, 1.2, 1.0, 0.95, 0.55, 0.12, 0.2, Shape.Orb, 5);
+            break;
           case SfxId.Graze:
             // A small, quick blue-white flick at the player as a bullet skims by.
             burst(x, y, 4, 30, 80, 1.6, 0.6, 0.8, 1.0, 0.18, 0.3, Shape.Orb, 4);
@@ -261,7 +267,7 @@ export function createVfx(gl: WebGL2RenderingContext): VfxLayer {
             shake(7, 0.4);
             break;
           default:
-            break; // Shoot / EnemyHit / SpellDeclare / SpellCapture / Extend / UI — no VFX here
+            break; // Shoot / SpellDeclare / SpellCapture / Extend / UI — no VFX here
         }
       }
     },
