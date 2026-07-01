@@ -19,6 +19,7 @@ import {
 import { DEMO_BOSS } from "./patterns/boss";
 import { demoStage } from "./patterns/stage";
 import { demoAudio } from "./audio";
+import { demoSprites } from "./sprites";
 
 // Two reference characters — authored content (a different game defines its own with
 // zero engine change). They differ in BOTH halves of the offense: the shot (how you
@@ -77,8 +78,8 @@ export const demoGame = defineGame({
   // default) and Focus (an explicit offensive bomb). Both share the run's player config;
   // a different game would tune lives/speed per character too.
   characters: [
-    { id: "Spread", config: DEFAULT_PLAYER_CONFIG, shot: SPREAD_SHOT },
-    { id: "Focus", config: DEFAULT_PLAYER_CONFIG, shot: FOCUS_SHOT, bomb: FOCUS_BOMB },
+    { id: "Spread", config: DEFAULT_PLAYER_CONFIG, shot: SPREAD_SHOT, sprite: demoSprites.player },
+    { id: "Focus", config: DEFAULT_PLAYER_CONFIG, shot: FOCUS_SHOT, bomb: FOCUS_BOMB, sprite: demoSprites.player },
   ],
   // Four difficulties, easiest-first — the chosen entry's INDEX is the rank the content
   // scales on (see `./difficulty`: Easy 0 … Lunatic 3, with NORMAL the unscaled anchor).
@@ -93,8 +94,9 @@ export const demoGame = defineGame({
   // The reference game uses the engine's default run rules (scoring economy, item
   // tuning, continues). A real game spreads these and overrides what it wants.
   config: DEFAULT_RUN_CONFIG,
-  // Presentation assets — the game's own BGM tracks (see ./audio). SFX use the engine
-  // defaults (no override map). Outside the sim: adding this doesn't touch any
+  // Presentation assets — the game's own BGM tracks (see ./audio) and sprite library (see
+  // ./sprites; enemies/player reference its handles, items use the engine defaults). SFX use
+  // the engine defaults (no override map). Outside the sim: adding this doesn't touch any
   // determinism baseline or the replay configId (which fingerprints only gameplay data).
-  assets: { audio: demoAudio },
+  assets: { audio: demoAudio, sprites: { library: demoSprites } },
 });

@@ -15,7 +15,8 @@ import { startAnimationLoop } from "../core/loop";
 import { createGL } from "../render/gl";
 import { createBulletRenderer } from "../render/bullets";
 import { createLaserRenderer } from "../render/lasers";
-import { SIM_CAPACITY, LASER_CAPACITY } from "../core/sim";
+import { createSpriteRenderer } from "../render/atlas";
+import { SIM_CAPACITY, LASER_CAPACITY, ENEMY_CAPACITY, ITEM_CAPACITY } from "../core/sim";
 import { PLAYFIELD_W, PLAYFIELD_H } from "../core/playfield";
 import { createShellInput, type ShellInput } from "./keyboard";
 import { createRouter, type Router, type Shell } from "./screen";
@@ -67,6 +68,14 @@ export function runGame(def: GameDefinition): AppHandle {
   const input = createShellInput(() => save.settings.keybinds);
   const bullets = createBulletRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, SIM_CAPACITY);
   const lasers = createLaserRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, LASER_CAPACITY);
+  // The alpha sprite pass (enemies/items/player). Created once, sized to the larger of the
+  // enemy/item pools (the most instances one drawInstances call ever packs). Its atlas loads
+  // asynchronously below from the game's sprite manifest; drawing no-ops until it has.
+  const sprites = createSpriteRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, Math.max(ENEMY_CAPACITY, ITEM_CAPACITY));
+  // Build the sprite atlas from the initial def (engine defaults are always included, so a
+  // game with no sprite manifest still renders default enemy/item/player art). Fire-and-
+  // forget like audio preload — non-throwing (a failed image logs + leaves a blank cell).
+  void sprites.load(def.assets?.sprites);
 
   // The sound system, created once (like the renderers) and reused across runs. A silent
   // game (no audio manifest) or a browser without Web Audio gets a no-op engine, so
@@ -103,6 +112,7 @@ export function runGame(def: GameDefinition): AppHandle {
     input,
     bullets,
     lasers,
+    sprites,
     audio,
     get def(): GameDefinition {
       return currentDef;
@@ -148,6 +158,12 @@ export function runGame(def: GameDefinition): AppHandle {
     input,
     reloadDef(next: GameDefinition): void {
       currentDef = next;
+      // Sprite hot-reload: re-resolve + re-upload the atlas from the freshly-imported def,
+      // re-stamping its handles. Layer assignment is stable (defaults, then library in source
+      // order), so a live enemy's stored base layer still points at the same sprite id — an
+      // edited drawer / swapped url just repaints that layer. (Audio is NOT re-preloaded on
+      // HMR — editing a pattern doesn't change sound — but art edits are a core authoring loop.)
+      void sprites.load(next.assets?.sprites);
     },
     stop(): void {
       loop.stop();

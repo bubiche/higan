@@ -16,6 +16,7 @@ import type { GameDefinition } from "../api/game";
 import type { ShellInput } from "./keyboard";
 import type { BulletRenderer } from "../render/bullets";
 import type { LaserRenderer } from "../render/lasers";
+import type { SpriteRenderer } from "../render/atlas";
 import type { SaveData } from "./save";
 import type { AudioEngine } from "../audio/engine";
 
@@ -46,6 +47,11 @@ export interface Shell {
   readonly input: ShellInput;
   readonly bullets: BulletRenderer;
   readonly lasers: LaserRenderer;
+  /** The alpha sprite pass (enemies/items/player craft), created once by the shell and
+   *  reused across runs. Its atlas loads asynchronously from the game's sprite manifest
+   *  (engine defaults + the game's library); drawing is a no-op until it has. Presentation-
+   *  only — never enters the sim. */
+  readonly sprites: SpriteRenderer;
   /** The sound system, created once by the shell (like the renderers) and reused across
    *  runs. A null-object engine when the game is silent or the browser has no Web Audio,
    *  so screens call it unconditionally. Presentation-only — never enters the sim. */

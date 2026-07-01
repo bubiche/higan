@@ -20,6 +20,7 @@ import type { PlayerConfig } from "../touhou/player";
 import type { ShotConfig } from "../touhou/shot";
 import type { BombConfig } from "../touhou/bomb";
 import type { AssetManifest } from "./audio";
+import type { SpriteHandle } from "./sprites";
 
 /**
  * One stage of a game. The `script` is the scene root: a coroutine (boss idiom) that
@@ -52,6 +53,9 @@ export interface CharacterDef {
   /** The character's bomb definition. Defaults to the engine's full-screen defensive
    *  bomb (`DEFAULT_BOMB_CONFIG`) if omitted, so a minimal game needn't author one. */
   readonly bomb?: BombConfig;
+  /** The player craft sprite (render-only), from `defineSprites`. Optional — omit to use
+   *  the engine's default player sprite. */
+  readonly sprite?: SpriteHandle;
 }
 
 /**

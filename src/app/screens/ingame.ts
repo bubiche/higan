@@ -28,9 +28,14 @@ import { INSTANCE_FLOATS, type Overlay } from "../../render/bullets";
 import { marshalShots } from "../../render/shots";
 import { marshalEnemies } from "../../render/enemies";
 import { marshalItems } from "../../render/items";
+import { ItemType } from "../../touhou/item";
 
 /** Speeds the number keys cycle through (debugger slow-mo). */
 const SPEEDS: Record<string, number> = { Digit1: 0.25, Digit2: 0.5, Digit3: 1 };
+
+/** Draw radius (sim units) of the player-craft sprite — larger than the old 7px marker dot
+ *  so a real craft reads at a sensible size on the 384-wide field. */
+const PLAYER_SPRITE_RADIUS = 16;
 
 /** The in-game screen exposes a hot-reload hook for dev HMR. */
 export interface InGameScreen extends Screen {
@@ -110,8 +115,14 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
   // Reused scratch for the enemy instance stream (enemies reuse the bullet program
   // too — Option B, no separate shader). Sized to the pool cap × the instance stride.
   const enemyInstances = new Float32Array(ENEMY_CAPACITY * INSTANCE_FLOATS);
-  // Reused scratch for the item instance stream (items reuse the bullet program too).
+  // Reused scratch for the item instance stream (items draw on the alpha sprite pass).
   const itemInstances = new Float32Array(ITEM_CAPACITY * INSTANCE_FLOATS);
+  // Reused scratch for the single-instance player-craft sprite draw.
+  const playerInstance = new Float32Array(INSTANCE_FLOATS);
+  // Presentation clock (seconds), accumulated from real frame dt — drives sprite-sheet
+  // animation. Purely presentation: never the sim tick, never hashed. Freezes while paused
+  // (this screen's `frame` doesn't run under an overlay), which pauses animation too.
+  let presentationClock = 0;
 
   // Bound to its DOM element in `buildDom` (the element doesn't exist until enter,
   // which always runs before the first frame/render).
@@ -317,6 +328,10 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       sidebar.innerHTML = "";
     },
     frame(dtSeconds: number): void {
+      // Advance the presentation clock (animation) by real elapsed time. Presentation-only;
+      // unrelated to the sim's fixed timestep and never hashed.
+      presentationClock += dtSeconds;
+
       // Capture the tick at the TOP, before the debugger-key loop can single-step or
       // step back: SFX play iff the sim actually advanced FORWARD this frame (below).
       const t0 = driver.tick;
@@ -372,31 +387,56 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
     },
     render(): void {
       const { system, player } = sim;
-      playerMarker.x = player.x;
-      playerMarker.y = player.y;
+      const sprites = shell.sprites;
+      const clock = presentationClock;
       hitboxMarker.x = player.x;
       hitboxMarker.y = player.y;
 
-      // Player marker, blinked off on alternate windows while invulnerable; the
-      // hitbox dot only while focus is held. Both cosmetic (out of sim/hash).
-      const overlays: Overlay[] = [];
+      // Player: an alpha sprite (the character's craft, or the engine default) drawn under
+      // the bullets; blinked off on alternate windows while invulnerable. Falls back to the
+      // glow marker if no sprite is available yet (atlas still loading). The hitbox dot draws
+      // only while focus is held. All cosmetic (out of sim/hash).
       const invulnBlink = player.invulnTicks > 0 && Math.floor(driver.tick / 4) % 2 === 1;
-      if (!invulnBlink) overlays.push(playerMarker);
+      const playerBase = character.sprite ? character.sprite.layer : sprites.defaultPlayerLayer;
+      const playerLayer = sprites.layerForBase(playerBase, clock);
+      const drawPlayerSprite = !invulnBlink && playerLayer >= 0;
+
+      const overlays: Overlay[] = [];
+      if (!invulnBlink && !drawPlayerSprite) {
+        playerMarker.x = player.x;
+        playerMarker.y = player.y;
+        overlays.push(playerMarker); // glow fallback until the sprite atlas is ready
+      }
       if (player.focused) overlays.push(hitboxMarker);
 
-      // Beams first (behind the bullet glow), then player shots (under everything for
-      // readability), then enemies (the foes that fire the danmaku), then items (the
-      // pickups they drop), then the bullets + overlays on top. All draw additively;
-      // shots, enemies, and items reuse the bullet program via `drawInstances`, each
-      // issued BEFORE the next draw overwrites the shared instance buffer. The canvas
-      // is cleared by the shell before the stack renders.
+      // Draw order: beams (behind), then player shots (glow, under everything for
+      // readability), then enemies and items and the player craft on the ALPHA sprite pass,
+      // then the danmaku glow + hitbox overlay on top. The glow layers (shots, bullets) and
+      // the sprite layers each assert their own blend mode per draw, so interleaving the two
+      // passes is order-safe. Each `drawInstances` is issued before the next overwrites its
+      // renderer's shared instance buffer. The canvas is cleared by the shell first.
       const beams = lasers.draw(sim.lasers.lasers);
       const shotCount = marshalShots(sim.shots.shots, shotInstances);
       bullets.drawInstances(shotInstances, shotCount);
-      const enemyCount = marshalEnemies(sim.enemies.enemies, enemyInstances);
-      bullets.drawInstances(enemyInstances, enemyCount);
-      const itemCount = marshalItems(sim.items.items, itemInstances);
-      bullets.drawInstances(itemInstances, itemCount);
+      const enemyCount = marshalEnemies(sim.enemies.enemies, enemyInstances, (base) =>
+        sprites.layerForBase(base < 0 ? sprites.defaultEnemyLayer : base, clock),
+      );
+      sprites.drawInstances(enemyInstances, enemyCount);
+      const itemCount = marshalItems(sim.items.items, itemInstances, (type: ItemType) =>
+        sprites.layerForBase(sprites.itemBaseLayer(type), clock),
+      );
+      sprites.drawInstances(itemInstances, itemCount);
+      if (drawPlayerSprite) {
+        playerInstance[0] = player.x;
+        playerInstance[1] = player.y;
+        playerInstance[2] = PLAYER_SPRITE_RADIUS;
+        playerInstance[3] = 0; // upright — the craft doesn't rotate
+        playerInstance[4] = 0.85;
+        playerInstance[5] = 0.95;
+        playerInstance[6] = 1.0;
+        playerInstance[7] = playerLayer;
+        sprites.drawInstances(playerInstance, 1);
+      }
       const drawn = bullets.draw(system.store, system.alive, system.highWater, overlays);
       hud.update(sim, driver, { beams, drawn, replayStatus });
     },

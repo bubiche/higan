@@ -360,7 +360,11 @@ export function createStageSim(
       y: ey,
       hp: spec.hp,
       radius: spec.radius,
-      sprite: spec.sprite,
+      // Render-only atlas base layer (not hashed). The handle's layer is stamped by the
+      // sprite loader (presentation); `-1` when omitted or not yet loaded — the renderer
+      // substitutes the engine default enemy sprite. In a headless (no-GL) run the loader
+      // never runs, so this stays -1 and, being unhashed, leaves every baseline untouched.
+      sprite: spec.sprite?.layer ?? -1,
       r: spec.color[0],
       g: spec.color[1],
       b: spec.color[2],

@@ -19,6 +19,7 @@ import type { EmitterScript, RunningEmitter, Vec2 } from "./emitter";
 import type { BossScript } from "./boss";
 import type { Rng } from "../core/prng";
 import type { ItemDropTable } from "../touhou/item";
+import type { SpriteHandle } from "./sprites";
 
 /**
  * An enemy's authored stats — the hittable-target content (like a character's
@@ -30,9 +31,11 @@ export interface EnemySpec {
   readonly hp: number;
   /** Collision + draw radius, sim units. */
   readonly radius: number;
-  /** Shape atlas layer (render-only). */
-  readonly sprite: number;
-  /** Linear RGB tint, 0..1 (render-only). */
+  /** The enemy's sprite (render-only), from `defineSprites`. Optional — omit to use the
+   *  engine's default enemy sprite, so a minimal game needn't author art. */
+  readonly sprite?: SpriteHandle;
+  /** Linear RGB tint, 0..1 (render-only). Multiplies the sprite's colour: a white
+   *  placeholder becomes this colour; give real art `[1,1,1]` to show it untinted. */
   readonly color: readonly [number, number, number];
   /** Items dropped when the enemy is SHOT DOWN (not when it flies off or culls).
    *  Just counts per type; the per-type look is engine-owned (genre convention). */

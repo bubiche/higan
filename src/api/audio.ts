@@ -12,6 +12,7 @@
 // composes its own BGM tracks).
 
 import type { SfxId } from "../core/events";
+import type { SpriteManifest } from "./sprites";
 
 /**
  * A procedural sound, offline-rendered once into a cached buffer.
@@ -81,9 +82,13 @@ export interface AudioManifest {
 }
 
 /**
- * The game's asset bag. Audio is the first (and, in v1, only) slot; sprites/backgrounds/
- * cut-ins join here later so `assets` stays one bag and the addition is non-breaking.
+ * The game's asset bag — one slot per asset kind, each optional so a minimal game declares
+ * only what it uses. Audio and sprites are wired; cut-ins/portraits ride the sprite slot's
+ * `ImageSource` (DOM-resolved). Every slot is presentation — the headless/determinism paths
+ * never touch it.
  */
 export interface AssetManifest {
   readonly audio?: AudioManifest;
+  /** Sprites (enemies/boss/player/items/portraits) + optional per-type item overrides. */
+  readonly sprites?: SpriteManifest;
 }

@@ -10,6 +10,7 @@
 import { type StageScript, type StageContext, type EmitterScript, Shape, PLAYFIELD_W } from "higan";
 import { scale } from "../difficulty";
 import { MIDBOSS } from "./midboss";
+import { demoSprites } from "../sprites";
 
 const AMBER: readonly [number, number, number] = [1, 0.75, 0.3];
 const TEAL: readonly [number, number, number] = [0.5, 0.9, 0.85];
@@ -76,7 +77,7 @@ function* popcornLine(ctx: StageContext, n: number, gap: number): Generator<numb
     ctx.spawnEnemy(popcorn, x, -12, {
       hp: 60,
       radius: 14,
-      sprite: Shape.BigOrb,
+      sprite: demoSprites.fairy,
       color: AMBER,
       drops: { power: 1, point: 1 },
     });
@@ -95,14 +96,14 @@ export const demoStage: StageScript = function* (ctx) {
   ctx.spawnEnemy(sweeper(1), -12, 90, {
     hp: 90,
     radius: 14,
-    sprite: Shape.BigOrb,
+    sprite: demoSprites.fairy,
     color: TEAL,
     drops: { power: 2, point: 2 },
   });
   ctx.spawnEnemy(sweeper(-1), PLAYFIELD_W + 12, 140, {
     hp: 90,
     radius: 14,
-    sprite: Shape.BigOrb,
+    sprite: demoSprites.fairy,
     color: TEAL,
     drops: { power: 2, point: 2 },
   });
@@ -120,14 +121,14 @@ export const demoStage: StageScript = function* (ctx) {
   ctx.spawnEnemy(turret, PLAYFIELD_W * 0.3, -12, {
     hp: 150,
     radius: 16,
-    sprite: Shape.BigOrb,
+    sprite: demoSprites.sentinel,
     color: ROSE,
     drops: { power: 3, point: 4, bomb: 1, life: 1 },
   });
   ctx.spawnEnemy(turret, PLAYFIELD_W * 0.7, -12, {
     hp: 150,
     radius: 16,
-    sprite: Shape.BigOrb,
+    sprite: demoSprites.sentinel,
     color: ROSE,
     drops: { power: 3, point: 4, fullPower: 1 },
   });

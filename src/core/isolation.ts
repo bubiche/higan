@@ -82,7 +82,7 @@ const isoStage: StageScript = function* (ctx) {
     ctx.spawnEnemy(isoEnemy, x, ENEMY_TOP + i * ENEMY_GAP, {
       hp: 30,
       radius: 14,
-      sprite: 0,
+      // sprite omitted (render-only, irrelevant to stream isolation) → engine default.
       color: [1, 1, 1],
     });
   }

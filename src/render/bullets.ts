@@ -51,7 +51,10 @@ export function marshalBullets(
   return drawn;
 }
 
-const VS = `#version 300 es
+/** The instanced textured-quad vertex shader. Shared with the alpha sprite pass
+ *  (`render/atlas.ts`), which reuses this exact quad transform with a different fragment
+ *  shader + blend, so the two passes can't drift on positioning/rotation. */
+export const INSTANCED_QUAD_VS = `#version 300 es
 layout(location=0) in vec2 aCorner;   // unit quad (-1..1)
 layout(location=1) in vec2 aPos;      // instance centre (sim units)
 layout(location=2) in float aScale;   // instance radius (sim units)
@@ -129,7 +132,7 @@ export function createBulletRenderer(
   fieldH: number,
   capacity: number,
 ): BulletRenderer {
-  const prog = createProgram(gl, VS, FS);
+  const prog = createProgram(gl, INSTANCED_QUAD_VS, FS);
   const uViewport = gl.getUniformLocation(prog, "uViewport");
   const uTex = gl.getUniformLocation(prog, "uTex");
   const tex = createShapeAtlas(gl);
@@ -180,6 +183,11 @@ export function createBulletRenderer(
       if (count === 0 && overlayCount === 0) return 0;
       gl.useProgram(prog);
       gl.uniform2f(uViewport, fieldW, fieldH);
+      // Re-assert additive blend every draw: the alpha sprite pass (enemies/items/player)
+      // runs between the shot and bullet draws and leaves straight-alpha set, so the glow
+      // layers must restore their own mode rather than rely on the creation-time state.
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
       gl.uniform1i(uTex, 0);
@@ -213,6 +221,8 @@ export function createBulletRenderer(
       if (count <= 0) return;
       gl.useProgram(prog);
       gl.uniform2f(uViewport, fieldW, fieldH);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE); // additive glow — restore after the alpha sprite pass
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
       gl.uniform1i(uTex, 0);

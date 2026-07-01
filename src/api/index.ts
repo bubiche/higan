@@ -65,6 +65,19 @@ export type { SfxEvent } from "../core/events";
 export type { SoundSource, SynthGen, BgmTrack, AudioManifest, AssetManifest } from "./audio";
 export { bgmLoop, type BgmSpec } from "../audio/synth";
 
+// Visual asset authoring surface — the loader-slot model for sprites (procedural stand-in
+// now, real image later, a one-line swap), plus `defineSprites`, which names a game's art
+// and returns TYPED handles referenced inline (a typo is a compile error, not a blank
+// sprite). Backgrounds are declared per stage as layers of these handles. See sprites.ts.
+export { defineSprites } from "./sprites";
+export type {
+  ImageSource,
+  SpriteDef,
+  SpriteHandle,
+  SpriteManifest,
+  BackgroundLayer,
+} from "./sprites";
+
 export {
   linear,
   accelerate,
