@@ -287,6 +287,9 @@ export function createItemSystem(bounds: ItemBounds, capacity = 256, cfg: ItemCo
  *
  * `maxPower` is the character's power ceiling (derived from its shot config by the
  * sim). A Power item past the ceiling converts to a point; FullPower jumps to it.
+ *
+ * Returns how many items were collected this tick so the caller can raise a single
+ * (batched) presentation event; the count is not read by any hashed logic.
  */
 export function stepItemCollection(
   items: ItemSystem,
@@ -294,10 +297,11 @@ export function stepItemCollection(
   maxPower: number,
   scoring: ScoringConfig,
   itemCfg: ItemConfig,
-): void {
-  if (player.state === PlayerState.GameOver) return;
+): number {
+  if (player.state === PlayerState.GameOver) return 0;
   const pool = items.items;
   const r2 = itemCfg.collectRadius * itemCfg.collectRadius;
+  let collected = 0;
   for (let i = 0; i < pool.length; i++) {
     const it = pool[i];
     if (!it.alive) continue;
@@ -306,7 +310,9 @@ export function stepItemCollection(
     if (dx * dx + dy * dy > r2) continue;
     applyItem(it.type, player, maxPower, scoring, itemCfg);
     items.despawn(i);
+    collected++;
   }
+  return collected;
 }
 
 /** Height factor for point-item scoring (the PoC mechanic): a point item collected

@@ -25,6 +25,7 @@
 
 import { Rng, mixSeed } from "./prng";
 import { hashFloat32Arrays } from "./hash";
+import { SfxId, type SfxEvent } from "./events";
 import { createBulletSystem, type BulletSystem } from "../bullets/system";
 import { createLaserSystem, type LaserSystem } from "../touhou/laser";
 import { createEnemySystem, stepEnemyShotCollision, type EnemySystem, type Enemy } from "../touhou/enemy";
@@ -145,6 +146,12 @@ export interface Simulation {
    *  boss are all done). This, not any single boss's defeat, is the run-end signal: a
    *  midboss falling resumes the stage rather than ending the run. */
   readonly stageComplete: boolean;
+  /** SFX events from the LAST step — presentation only. NOT hashed and never read back
+   *  into sim logic; pushing them consumes zero RNG. Cleared at the start of each step,
+   *  so this reflects exactly one tick's worth. Reading or ignoring it has zero effect
+   *  on the hash (audio is provably presentation). The in-game screen plays these after
+   *  a live forward step and suppresses them during bulk scrub/replay re-steps. */
+  readonly events: readonly SfxEvent[];
   /** Advance the simulation by exactly one fixed step, given this tick's input. */
   step(input: InputFrame): void;
   /** Bit-level fingerprint of the current state (live slots only). */
@@ -228,6 +235,16 @@ export function createStageSim(
   // bound — already-fired sub-streams persist after the enemy dies, genre-correct.)
   let bound: { slot: number; em: RunningEmitter }[] = [];
 
+  // Per-tick SFX event list (design note §h). PRESENTATION ONLY: it is not hashed, is
+  // never read back into sim logic, and `emit` consumes zero RNG and touches no hashed
+  // field — so it cannot affect a replay (the same discipline that makes the HUD a
+  // read-only view). Cleared at the START of each `step`, so it holds exactly one tick.
+  // The audio layer reads `sim.events` AFTER the step; the sim never plays a sound.
+  const events: SfxEvent[] = [];
+  const emit = (id: SfxId, x?: number, n?: number): void => {
+    events.push({ id, x, n });
+  };
+
   const deps: EmitterDeps = {
     system,
     lasers,
@@ -282,6 +299,8 @@ export function createStageSim(
       bossState.isSpell = spec.isSpell ?? false;
       // Capture tracking resets at phase start; a hit or bomb clears it (player.ts).
       player.spellCapturedNoMiss = true;
+      // SFX (presentation): announce a spell card. Zero RNG, not hashed.
+      if (bossState.isSpell) emit(SfxId.SpellDeclare);
     },
     endPhase(group: number, captured: boolean) {
       // Spell-capture bonus: awarded FIRST, while bossState still holds this phase's
@@ -290,6 +309,10 @@ export function createStageSim(
       // hashed, zero RNG. The declining-with-time bonus lives in score.ts.
       if (captured && bossState.isSpell) {
         awardSpellCapture(player, bossState.timeLeft, bossState.timeLimit, scoring);
+        // SFX (presentation): the capture jingle. Shares this already-gated branch with
+        // the (hashed) score award, but `emit` only pushes — zero RNG, not hashed — so
+        // it cannot perturb the hash; the pinned baselines confirm it.
+        emit(SfxId.SpellCapture);
       }
       for (const em of running) if (em.group === group) em.done = true;
       bossState.active = false;
@@ -441,6 +464,10 @@ export function createStageSim(
       if (radius > 0) system.despawn(i);
     }
     if (award && n > 0) awardCancel(player, n, scoring);
+    // SFX (presentation): one event for the WHOLE cleared batch (never per bullet, §h),
+    // whenever bullets were actually cancelled. `cx` is the clear origin (player on a
+    // bomb; player on a full-field phase clear). Zero RNG, not hashed.
+    if (n > 0) emit(SfxId.Cancel, cx, n);
     if (radius === 0) system.clear();
   };
 
@@ -552,6 +579,11 @@ export function createStageSim(
   const scalars = new Float32Array(28);
 
   const step = (input: InputFrame): void => {
+    // Reset the per-tick SFX list first, so it holds exactly this step's events (bounds
+    // it to one tick — no accumulation across a `loadRecording` re-step). Presentation
+    // only; see the `events`/`emit` declaration above.
+    events.length = 0;
+
     // 1. Player movement from input (focus-aware speed, clamped to the field).
     stepPlayerMovement(player, input, config, dt, PLAYFIELD_W, PLAYFIELD_H);
 
@@ -561,8 +593,9 @@ export function createStageSim(
 
     // 2b. Player fires (ZERO RNG — deterministic cadence + fixed angles, so the
     //     player never perturbs any danmaku stream, §c). Shots spawn at the just-
-    //     moved player position and advance with the bullets below.
-    fireShots(shots, player, input, shot, tick);
+    //     moved player position and advance with the bullets below. One SFX per volley
+    //     tick regardless of stream count.
+    if (fireShots(shots, player, input, shot, tick)) emit(SfxId.Shoot, player.x);
 
     // 3. Scene. The stage root, the boss (once spawned), and every child emitter all
     //    advance through the same scheduler array. The stage drives the scene; the
@@ -608,7 +641,8 @@ export function createStageSim(
     //     Run AFTER stepRunning so a boss coroutine read this tick's pre-drain HP (the
     //     one-tick transition lag, see api/boss.ts).
     shots.update(dt);
-    stepEnemyShotCollision(enemies, shots);
+    const enemyHits = stepEnemyShotCollision(enemies, shots);
+    if (enemyHits > 0) emit(SfxId.EnemyHit, undefined, enemyHits); // batched: one/tick
     if (bossRoot && bossState.active && bossState.hp > 0 && player.state !== PlayerState.GameOver) {
       const dmg = stepShotCollision(shots, {
         x: BOSS_ORIGIN_X,
@@ -626,8 +660,8 @@ export function createStageSim(
     //     can never desync. One fixed-order sweep, then compact `bound` + `running`.
     //     In-flight bullets the enemy fired persist (genre-correct). Items drop ONLY on
     //     a shot-kill (hp<=0) — a fly-off / cull yields nothing, the Touhou rule — and
-    //     the drop scatter rides the dedicated item stream. No §h event list yet (no
-    //     consumer until scoring / audio).
+    //     the drop scatter rides the dedicated item stream. A shot-kill also raises an
+    //     EnemyDeath SFX event (presentation only; §h).
     let torn = false;
     for (let i = 0; i < bound.length; i++) {
       const { slot, em } = bound[i]!;
@@ -639,7 +673,12 @@ export function createStageSim(
         e.y > PLAYFIELD_H + ENEMY_CULL_MARGIN;
       const killed = e.hp <= 0;
       if (killed || em.done || off) {
-        if (killed) spawnDrops(e);
+        if (killed) {
+          spawnDrops(e);
+          // SFX (presentation): only a shot-kill sonifies — a fly-off / cull is silent,
+          // mirroring the drop rule. `e.x` for pan. Zero RNG, not hashed.
+          emit(SfxId.EnemyDeath, e.x);
+        }
         enemies.despawn(slot);
         em.done = true;
         torn = true;
@@ -657,12 +696,23 @@ export function createStageSim(
     //    the collision loop, which stays a pure graze/hit pass.
     const grazeBefore = player.graze;
     const { hit } = stepCollision(player, system, lasers, config);
-    if (player.graze > grazeBefore) awardGraze(player, player.graze - grazeBefore, scoring);
+    if (player.graze > grazeBefore) {
+      const grazeDelta = player.graze - grazeBefore;
+      awardGraze(player, grazeDelta, scoring);
+      emit(SfxId.Graze, player.x, grazeDelta); // SFX (presentation): zero RNG, not hashed
+    }
     // 7. Death/bomb lifecycle consumes the hit. A bomb (or deathbomb) clears the
     //    field; the clear is done here so the lifecycle step stays free of the
     //    bullet/laser systems.
-    const { clearField } = stepPlayerLifecycle(player, input, config, hit, START_X, START_Y);
+    const { clearField, deathbomb, lifeLost } = stepPlayerLifecycle(player, input, config, hit, START_X, START_Y);
+    // SFX (presentation, zero RNG, not hashed). Pichuun on the death that costs a life
+    // (deathbomb-window expiry, including the final game-over death); the bomb sound
+    // distinguishes a panic deathbomb from an ordinary bomb. `clearField` and `lifeLost`
+    // are mutually exclusive in a tick (a successful bomb leaves the Dying state), so
+    // order is immaterial.
+    if (lifeLost) emit(SfxId.Pichuun, player.x);
     if (clearField) {
+      emit(deathbomb ? SfxId.PlayerDeathBomb : SfxId.Bomb, player.x);
       // A bomb/deathbomb runs the active character's bomb (its `BombConfig`): cancel the
       // field — wholly (radius 0) or within the bomb's radius of the player — converting it
       // to point-items + score; optionally nuke every beam and vacuum every item (including
@@ -695,12 +745,16 @@ export function createStageSim(
     //    auto-attracts the whole field. ZERO RNG (the scatter was drawn at drop time).
     const fullPower = MAX_POWER > 0 && player.power >= MAX_POWER;
     items.update(dt, player.x, player.y, fullPower);
-    stepItemCollection(items, player, MAX_POWER, scoring, itemCfg);
+    const collected = stepItemCollection(items, player, MAX_POWER, scoring, itemCfg);
+    // SFX (presentation): batched to one/tick (per-type ids are a deferred seam — §13);
+    // `n` carries the count. Player x for pan (items home to the player). Zero RNG.
+    if (collected > 0) emit(SfxId.ItemCollect, player.x, collected);
 
     // 9. Extends: every score-threshold the run has crossed this tick grants a life.
     //    Runs last, after every award this tick (point items, graze, spell capture,
     //    stage clear) has landed in `score`. Bounded by the threshold list; zero RNG.
-    applyExtends(player, scoring);
+    const extended = applyExtends(player, scoring);
+    if (extended > 0) emit(SfxId.Extend, player.x); // SFX (presentation): zero RNG, not hashed
 
     tick++;
   };
@@ -910,6 +964,9 @@ export function createStageSim(
     },
     get stageComplete() {
       return stageRoot.done;
+    },
+    get events() {
+      return events;
     },
     step,
     hash,

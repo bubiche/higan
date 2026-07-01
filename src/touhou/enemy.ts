@@ -130,10 +130,14 @@ export function createEnemySystem(capacity = 64): EnemySystem {
  * it can't also hit a second enemy or the boss — deterministic in (shot pool order,
  * enemy pool order). ZERO randomness. The sim applies death (`hp <= 0`) afterward;
  * this only reads positions and writes hp + despawns shots.
+ *
+ * Returns how many shots landed this tick so the caller can raise a single (batched)
+ * presentation event; the count is not read by any hashed logic.
  */
-export function stepEnemyShotCollision(enemies: EnemySystem, shots: ShotSystem): void {
+export function stepEnemyShotCollision(enemies: EnemySystem, shots: ShotSystem): number {
   const pool = enemies.enemies;
   const sp = shots.shots;
+  let hits = 0;
   for (let i = 0; i < sp.length; i++) {
     const s = sp[i];
     if (!s.alive) continue;
@@ -146,8 +150,10 @@ export function stepEnemyShotCollision(enemies: EnemySystem, shots: ShotSystem):
       if (dx * dx + dy * dy <= thr * thr) {
         e.hp -= s.damage;
         shots.despawn(i);
+        hits++;
         break; // the shot is spent on the first enemy it hits
       }
     }
   }
+  return hits;
 }

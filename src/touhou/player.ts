@@ -161,8 +161,11 @@ export function stepPlayerMovement(
  * Step the player's death/bomb lifecycle for one tick, given whether collision
  * reported a hit this tick. Pure and consumes no randomness, so the emitter RNG
  * stream is unaffected and the whole machine folds into the deterministic hash via
- * the player struct. Returns whether a bomb fired this tick — the caller does the
- * actual bullet/laser clear (so this stays free of the bullet/laser systems).
+ * the player struct. Returns whether a bomb fired this tick (`clearField` — the caller
+ * does the actual bullet/laser clear, so this stays free of the bullet/laser systems),
+ * whether that bomb was a deathbomb (vs a normal bomb), and whether the player lost a
+ * life this tick. The two extra flags are presentation-only — they let the caller raise
+ * the right sound and are never read back into hashed logic.
  *
  * Order within the tick matters and is deliberate:
  *  1. A fresh hit opens the deathbomb window (Dying). Done first so that a bomb
@@ -183,8 +186,10 @@ export function stepPlayerLifecycle(
   hit: boolean,
   startX: number,
   startY: number,
-): { clearField: boolean } {
+): { clearField: boolean; deathbomb: boolean; lifeLost: boolean } {
   let clearField = false;
+  let deathbomb = false;
+  let lifeLost = false;
 
   // 1. A fresh hit (while vulnerable — collision already gated `hit` on that) opens
   //    the deathbomb window. A hit is a miss for capture purposes.
@@ -207,6 +212,7 @@ export function stepPlayerLifecycle(
       p.invulnTicks = cfg.bombInvuln;
       p.spellCapturedNoMiss = false;
       clearField = true;
+      deathbomb = true;
     } else if (p.state !== PlayerState.Dying && p.state !== PlayerState.GameOver) {
       p.bombs--;
       p.invulnTicks = cfg.bombInvuln;
@@ -227,6 +233,7 @@ export function stepPlayerLifecycle(
     if (p.deathbombTicks <= 0) {
       p.deathbombTicks = 0;
       p.lives--;
+      lifeLost = true;
       if (p.lives < 0) {
         p.lives = 0;
         p.state = PlayerState.GameOver;
@@ -244,5 +251,5 @@ export function stepPlayerLifecycle(
     p.state = PlayerState.Alive;
   }
 
-  return { clearField };
+  return { clearField, deathbomb, lifeLost };
 }

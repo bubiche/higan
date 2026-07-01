@@ -199,6 +199,10 @@ export function createShotSystem(bounds: ShotBounds, capacity = 256): ShotSystem
  * to a narrow column (high single-target DPS), unfocus stays a wide spread. With a
  * narrow focus fan every shot lands on a centred boss, so focus out-damages unfocus
  * *emergently* — no separate focus-damage knob needed.
+ *
+ * Returns whether a volley fired this tick (one per cadence tick, regardless of stream
+ * count) so the caller can raise a single presentation event. The return is not read by
+ * any hashed logic — firing stays a pure, zero-RNG function of (tick, input, power).
  */
 export function fireShots(
   system: ShotSystem,
@@ -206,10 +210,10 @@ export function fireShots(
   input: InputFrame,
   cfg: ShotConfig,
   tick: number,
-): void {
-  if (!input.shoot) return;
-  if (player.state !== PlayerState.Alive && player.state !== PlayerState.Respawning) return;
-  if (tick % cfg.fireInterval !== 0) return;
+): boolean {
+  if (!input.shoot) return false;
+  if (player.state !== PlayerState.Alive && player.state !== PlayerState.Respawning) return false;
+  if (tick % cfg.fireInterval !== 0) return false;
 
   const streams = Math.min(cfg.maxStreams, cfg.baseStreams + Math.floor(player.power / cfg.powerPerStream));
   const halfArc = (player.focused ? cfg.focusSpreadFrac : 1) * cfg.spread;
@@ -234,6 +238,7 @@ export function fireShots(
       b,
     });
   }
+  return true;
 }
 
 /**

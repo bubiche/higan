@@ -129,13 +129,19 @@ export function awardStageClear(player: Player, s: ScoringConfig): void {
  * check, advancing the index so each threshold fires once. Bounded by the threshold
  * list (no extends past the last). Pure of randomness; folds into the hash via
  * lives + nextExtendIndex.
+ *
+ * Returns how many extends were granted this tick so the caller can raise a single
+ * presentation event; the count is not read by any hashed logic.
  */
-export function applyExtends(player: Player, s: ScoringConfig): void {
+export function applyExtends(player: Player, s: ScoringConfig): number {
+  let granted = 0;
   while (
     player.nextExtendIndex < s.extendThresholds.length &&
     player.score >= s.extendThresholds[player.nextExtendIndex]!
   ) {
     player.lives++;
     player.nextExtendIndex++;
+    granted++;
   }
+  return granted;
 }
