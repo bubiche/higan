@@ -260,12 +260,16 @@ export function planSpriteLayout(manifest: SpriteManifest | undefined): SpriteLa
   for (const e of overrideItems) itemLayer[e.type] = e.placed.base;
 
   const anim = new Map<number, { frames: number; fps: number }>();
+  const registerAnim = (p: Placed): void => {
+    if (p.frames > 1 && p.fps > 0) anim.set(p.base, { frames: p.frames, fps: p.fps });
+  };
   for (const e of libEntries) {
     e.handle.layer = e.placed.base;
-    if (e.placed.frames > 1 && e.placed.fps > 0) {
-      anim.set(e.placed.base, { frames: e.placed.frames, fps: e.placed.fps });
-    }
+    registerAnim(e.placed);
   }
+  // Item overrides animate too (their frames are already reserved above) — resolved at draw
+  // by item type, not a handle, so they need no `.layer` stamp, only an `anim` entry.
+  for (const e of overrideItems) registerAnim(e.placed);
 
   return {
     placements,
