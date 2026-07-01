@@ -16,6 +16,7 @@ import { createGL } from "../render/gl";
 import { createBulletRenderer } from "../render/bullets";
 import { createLaserRenderer } from "../render/lasers";
 import { createSpriteRenderer } from "../render/atlas";
+import { createBackgroundRenderer } from "../render/background";
 import { SIM_CAPACITY, LASER_CAPACITY, ENEMY_CAPACITY, ITEM_CAPACITY } from "../core/sim";
 import { PLAYFIELD_W, PLAYFIELD_H } from "../core/playfield";
 import { createShellInput, type ShellInput } from "./keyboard";
@@ -24,6 +25,13 @@ import { createTitleScreen } from "./screens/title";
 import { loadSave, persistSave, clampDisplayScale } from "./save";
 import { createAudioEngine, createNullAudioEngine, type AudioEngine } from "../audio/engine";
 import type { GameDefinition } from "../api/game";
+import type { BackgroundLayer } from "../api/sprites";
+
+/** Every background layer across all stages — what the background pass preloads (one texture
+ *  per distinct handle, deduped inside `load`). */
+function collectBackgroundLayers(def: GameDefinition): readonly BackgroundLayer[] {
+  return def.stages.flatMap((s) => s.background?.layers ?? []);
+}
 
 export interface AppHandle {
   readonly router: Router;
@@ -76,6 +84,11 @@ export function runGame(def: GameDefinition): AppHandle {
   // game with no sprite manifest still renders default enemy/item/player art). Fire-and-
   // forget like audio preload — non-throwing (a failed image logs + leaves a blank cell).
   void sprites.load(def.assets?.sprites);
+  // The parallax background pass (full-field scenery behind the danmaku). Created once and
+  // reused across runs; preloads every stage's background textures up front (fire-and-forget,
+  // non-throwing). A game with no `background` on any stage simply draws nothing.
+  const background = createBackgroundRenderer(gl, PLAYFIELD_W, PLAYFIELD_H);
+  void background.load(collectBackgroundLayers(def));
 
   // The sound system, created once (like the renderers) and reused across runs. A silent
   // game (no audio manifest) or a browser without Web Audio gets a no-op engine, so
@@ -113,6 +126,7 @@ export function runGame(def: GameDefinition): AppHandle {
     bullets,
     lasers,
     sprites,
+    background,
     audio,
     get def(): GameDefinition {
       return currentDef;
@@ -164,6 +178,10 @@ export function runGame(def: GameDefinition): AppHandle {
       // edited drawer / swapped url just repaints that layer. (Audio is NOT re-preloaded on
       // HMR — editing a pattern doesn't change sound — but art edits are a core authoring loop.)
       void sprites.load(next.assets?.sprites);
+      // Background hot-reload: re-resolve + re-upload every stage's background textures from
+      // the freshly-imported def (it deletes the old textures wholesale), so editing a
+      // background drawer / swapping a url shows live.
+      void background.load(collectBackgroundLayers(next));
     },
     stop(): void {
       loop.stop();

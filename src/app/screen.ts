@@ -17,6 +17,7 @@ import type { ShellInput } from "./keyboard";
 import type { BulletRenderer } from "../render/bullets";
 import type { LaserRenderer } from "../render/lasers";
 import type { SpriteRenderer } from "../render/atlas";
+import type { BackgroundRenderer } from "../render/background";
 import type { SaveData } from "./save";
 import type { AudioEngine } from "../audio/engine";
 
@@ -52,6 +53,11 @@ export interface Shell {
    *  (engine defaults + the game's library); drawing is a no-op until it has. Presentation-
    *  only — never enters the sim. */
   readonly sprites: SpriteRenderer;
+  /** The parallax background pass (full-field scenery behind the danmaku), created once by
+   *  the shell and reused across runs. Its textures load asynchronously from the stages'
+   *  `background` layers; drawing is a no-op until they have. Presentation-only — never
+   *  enters the sim. */
+  readonly background: BackgroundRenderer;
   /** The sound system, created once by the shell (like the renderers) and reused across
    *  runs. A null-object engine when the game is silent or the browser has no Web Audio,
    *  so screens call it unconditionally. Presentation-only — never enters the sim. */

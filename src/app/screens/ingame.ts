@@ -392,6 +392,12 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       hitboxMarker.x = player.x;
       hitboxMarker.y = player.y;
 
+      // Parallax background FIRST, behind everything, over the shell's clear. Read the
+      // stage's layers fresh from `shell.def` so a hot-reload picks up edits; scroll runs off
+      // the presentation clock (wall time), never the sim — so it's replay-irrelevant.
+      const backgroundLayers = shell.def.stages[STAGE_INDEX]?.background?.layers;
+      if (backgroundLayers) shell.background.draw(backgroundLayers, clock);
+
       // Player: an alpha sprite (the character's craft, or the engine default) drawn under
       // the bullets; blinked off on alternate windows while invulnerable. Falls back to the
       // glow marker if no sprite is available yet (atlas still loading). The hitbox dot draws

@@ -20,6 +20,7 @@ import { DEMO_BOSS } from "./patterns/boss";
 import { demoStage } from "./patterns/stage";
 import { demoAudio } from "./audio";
 import { demoSprites } from "./sprites";
+import { demoBackgroundLayers } from "./background";
 
 // Two reference characters — authored content (a different game defines its own with
 // zero engine change). They differ in BOTH halves of the offense: the shot (how you
@@ -73,7 +74,15 @@ const FOCUS_BOMB: BombConfig = {
 export const demoGame = defineGame({
   title: "HIGAN",
   seed: 0x1a9e,
-  stages: [{ id: "stage-1", script: demoStage, boss: DEMO_BOSS, music: { stage: "stage1", boss: "boss1" } }],
+  stages: [
+    {
+      id: "stage-1",
+      script: demoStage,
+      boss: DEMO_BOSS,
+      music: { stage: "stage1", boss: "boss1" },
+      background: { layers: demoBackgroundLayers },
+    },
+  ],
   // Two characters: Spread (default defensive bomb — omitted, so it uses the engine
   // default) and Focus (an explicit offensive bomb). Both share the run's player config;
   // a different game would tune lives/speed per character too.

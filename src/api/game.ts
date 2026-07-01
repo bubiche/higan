@@ -20,7 +20,7 @@ import type { PlayerConfig } from "../touhou/player";
 import type { ShotConfig } from "../touhou/shot";
 import type { BombConfig } from "../touhou/bomb";
 import type { AssetManifest } from "./audio";
-import type { SpriteHandle } from "./sprites";
+import type { SpriteHandle, BackgroundLayer } from "./sprites";
 
 /**
  * One stage of a game. The `script` is the scene root: a coroutine (boss idiom) that
@@ -41,6 +41,12 @@ export interface StageDef {
    *  screen reads sim state and asserts the theme; the sim never sees this. Omit for a
    *  silent stage. */
   readonly music?: { readonly stage: string; readonly boss?: string };
+  /** The stage's parallax background: layers drawn full-field BEHIND the danmaku,
+   *  back-to-front in array order. Each names a `SpriteHandle` (from `defineSprites`) —
+   *  referenced HERE, not in `assets.sprites.library` (the background pass loads it at full
+   *  resolution). Presentation-only — scroll runs off a wall clock, never the sim, so it
+   *  never touches a determinism baseline or the replay configId. Omit for a bare field. */
+  readonly background?: { readonly layers: readonly BackgroundLayer[] };
 }
 
 /** A playable character: its movement/life tuning plus its shot and bomb definitions. */
