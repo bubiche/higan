@@ -20,6 +20,7 @@ import { DEMO_BOSS } from "./patterns/boss";
 import { demoStage } from "./patterns/stage";
 import { demoAudio } from "./audio";
 import { demoSprites } from "./sprites";
+import { demoPortraits } from "./portraits";
 import { demoBackgroundLayers } from "./background";
 
 // Two reference characters — authored content (a different game defines its own with
@@ -79,6 +80,10 @@ export const demoGame = defineGame({
       id: "stage-1",
       script: demoStage,
       boss: DEMO_BOSS,
+      // Presentation identity for the boss splash / nameplate / spell cut-in. The portrait is
+      // a `demoPortraits` handle (NOT in `assets.sprites.library`) so it resolves to a DOM
+      // cut-in image rather than an atlas layer.
+      bossInfo: { name: "Azure Gatekeeper", portrait: demoPortraits.gatekeeper },
       music: { stage: "stage1", boss: "boss1" },
       background: { layers: demoBackgroundLayers },
     },
@@ -87,8 +92,8 @@ export const demoGame = defineGame({
   // default) and Focus (an explicit offensive bomb). Both share the run's player config;
   // a different game would tune lives/speed per character too.
   characters: [
-    { id: "Spread", config: DEFAULT_PLAYER_CONFIG, shot: SPREAD_SHOT, sprite: demoSprites.player },
-    { id: "Focus", config: DEFAULT_PLAYER_CONFIG, shot: FOCUS_SHOT, bomb: FOCUS_BOMB, sprite: demoSprites.player },
+    { id: "Spread", config: DEFAULT_PLAYER_CONFIG, shot: SPREAD_SHOT, sprite: demoSprites.player, portrait: demoPortraits.heroine },
+    { id: "Focus", config: DEFAULT_PLAYER_CONFIG, shot: FOCUS_SHOT, bomb: FOCUS_BOMB, sprite: demoSprites.player, portrait: demoPortraits.heroine },
   ],
   // Four difficulties, easiest-first — the chosen entry's INDEX is the rank the content
   // scales on (see `./difficulty`: Easy 0 … Lunatic 3, with NORMAL the unscaled anchor).

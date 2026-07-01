@@ -40,6 +40,7 @@ export {
   DEFAULT_DIFFICULTIES,
   type GameDefinition,
   type StageDef,
+  type BossInfo,
   type CharacterDef,
   type DifficultyDef,
 } from "./game";

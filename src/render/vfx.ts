@@ -266,8 +266,20 @@ export function createVfx(gl: WebGL2RenderingContext): VfxLayer {
             flash(1.0, 1.0, 1.0, 0.5, 0.4);
             shake(7, 0.4);
             break;
+          case SfxId.SpellDeclare:
+            // Spell-card declaration: a soft cyan wash announces it (the DOM cut-in + banner
+            // and the GL spell-tint carry the rest). SpellDeclare carries no x/y, so this
+            // washes from the field centre — a full-field flash, so the origin is irrelevant.
+            flash(0.7, 0.85, 1.0, 0.3, 0.5);
+            break;
+          case SfxId.SpellCapture:
+            // Capture: a bright gold pop + a star sparkle burst at centre (the DOM flourish
+            // names it). No shake — capture is a reward beat, not an impact.
+            burst(x, y, 18, 70, 150, 2.8, 1.0, 0.9, 0.5, 0.4, 0.65, Shape.Star, 2.2);
+            flash(1.0, 0.95, 0.75, 0.36, 0.55);
+            break;
           default:
-            break; // Shoot / SpellDeclare / SpellCapture / Extend / UI — no VFX here
+            break; // Shoot / Extend / UI — no VFX here
         }
       }
     },

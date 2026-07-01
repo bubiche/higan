@@ -54,6 +54,22 @@ void main() {
   frag = vec4(t.rgb, t.a * uOpacity); // straight alpha, faded by the layer's opacity
 }`;
 
+// A solid-colour full-field wash — the spell-card "background swap": a straight-alpha tint
+// drawn OVER the scenery but UNDER the danmaku, ramped up while a spell is active so the
+// field visibly shifts mood without needing per-spell background art (a slice stand-in for a
+// fully authored spell background). Its corners overshoot the clip cube (±1.1) exactly like
+// the VFX flash: a co-firing screen-shake slides the whole GL viewport, and a tight ±1 quad
+// would leave a clear-colour strip at the shifted edge.
+const TINT_VS = `#version 300 es
+layout(location=0) in vec2 aPos;
+void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
+
+const TINT_FS = `#version 300 es
+precision mediump float;
+uniform vec4 uColor;
+out vec4 frag;
+void main() { frag = uColor; }`;
+
 /** Paint a procedural background source into a `BG_SIZE` square canvas (frame 0 — background
  *  layers are static images; a scrolling layer scrolls its UV, it does not frame-animate). */
 function paintProcedural(source: Extract<ImageSource, { kind: "procedural" }>): HTMLCanvasElement {
@@ -89,6 +105,10 @@ export interface BackgroundRenderer {
    *  whose texture isn't loaded is skipped; a no-op entirely until the first `load` resolves
    *  or for an empty list. */
   draw(layers: readonly BackgroundLayer[], clockSec: number): void;
+  /** Wash the whole field with a straight-alpha tint (the spell-card background swap). Draw
+   *  it right after `draw` — over the scenery, under the danmaku. Independent of `loaded`, so
+   *  a spell on a bare field still tints. A no-op at alpha ≤ 0. */
+  drawTint(r: number, g: number, b: number, alpha: number): void;
   /** Whether at least one texture has been uploaded (drawing is a no-op before this). */
   readonly loaded: boolean;
 }
@@ -110,6 +130,18 @@ export function createBackgroundRenderer(
   gl.bindBuffer(gl.ARRAY_BUFFER, cornerBuf);
   // A 0..1 quad as a triangle strip (top-left, top-right, bottom-left, bottom-right).
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+
+  // The spell-tint program: a solid-colour clip-space quad (±1.1 overshoot for shake safety).
+  const tintProg = createProgram(gl, TINT_VS, TINT_FS);
+  const uTintColor = gl.getUniformLocation(tintProg, "uColor");
+  const tintVao = gl.createVertexArray();
+  gl.bindVertexArray(tintVao);
+  const tintBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, tintBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1.1, -1.1, 1.1, -1.1, -1.1, 1.1, 1.1, 1.1]), gl.STATIC_DRAW);
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
   gl.bindVertexArray(null);
@@ -189,6 +221,18 @@ export function createBackgroundRenderer(
         gl.bindTexture(gl.TEXTURE_2D, tex);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       }
+      gl.bindVertexArray(null);
+    },
+    drawTint(r, g, b, alpha): void {
+      if (alpha <= 0.001) return;
+      gl.useProgram(tintProg);
+      gl.disable(gl.DEPTH_TEST);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); // straight-alpha wash over the scenery
+      // Un-premultiplied RGB (SRC_ALPHA blend multiplies by alpha itself), as the VFX flash does.
+      gl.uniform4f(uTintColor, r, g, b, alpha);
+      gl.bindVertexArray(tintVao);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       gl.bindVertexArray(null);
     },
   };

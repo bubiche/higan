@@ -15,6 +15,7 @@ import { createResultsScreen, type RunOutcome } from "./results";
 import { createPauseScreen } from "./pause";
 import { createContinueScreen } from "./continue";
 import { createHud, type Hud } from "../hud";
+import { createCutins, type CutinLayer, type CutinIdentity } from "../cutins";
 import { createStageSim, type Simulation, SHOT_CAPACITY, ENEMY_CAPACITY, ITEM_CAPACITY } from "../../core/sim";
 import { SfxId } from "../../core/events";
 import { mixSeed } from "../../core/prng";
@@ -36,6 +37,14 @@ const SPEEDS: Record<string, number> = { Digit1: 0.25, Digit2: 0.5, Digit3: 1 };
 /** Draw radius (sim units) of the player-craft sprite — larger than the old 7px marker dot
  *  so a real craft reads at a sensible size on the 384-wide field. */
 const PLAYER_SPRITE_RADIUS = 16;
+
+/** The spell-card background swap: a deep-violet wash faded in over the scenery while a
+ *  spell phase is active. Colour + peak alpha are a slice stand-in for per-spell art; the
+ *  rate lerps it in/out over ~0.3s so a phase transition shifts mood smoothly (wall-clock,
+ *  never the sim tick). */
+const SPELL_TINT: readonly [number, number, number] = [0.3, 0.16, 0.44];
+const SPELL_TINT_MAX = 0.42;
+const SPELL_TINT_RATE = 3.5;
 
 /** The in-game screen exposes a hot-reload hook for dev HMR. */
 export interface InGameScreen extends Screen {
@@ -123,10 +132,24 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
   // animation. Purely presentation: never the sim tick, never hashed. Freezes while paused
   // (this screen's `frame` doesn't run under an overlay), which pauses animation too.
   let presentationClock = 0;
+  // Spell-card background wash intensity (0..SPELL_TINT_MAX), lerped toward its target on wall
+  // time each frame — presentation-only, never the sim tick.
+  let spellTint = 0;
+
+  // The boss/character presentation identity (nameplate name + cut-in portraits), read FRESH
+  // from `shell.def` + the current character each frame so a content hot-reload / the loaded
+  // replay's character take effect. Presentation-only — the sim never sees any of it.
+  const currentIdentity = (): CutinIdentity => {
+    const info = shell.def.stages[STAGE_INDEX]?.bossInfo;
+    return { bossName: info?.name, bossPortrait: info?.portrait, playerPortrait: character.portrait };
+  };
 
   // Bound to its DOM element in `buildDom` (the element doesn't exist until enter,
   // which always runs before the first frame/render).
   let hud!: Hud;
+  // The boss/spell cut-in overlay (nameplate, appear splash, spell banner, cut-in portraits,
+  // capture flourish). Built into `shell.overlay` in `buildDom`, destroyed on exit.
+  let cutins!: CutinLayer;
   // Last replay save/load outcome, shown in the HUD. Screen-local — never enters
   // the sim or the recorded input log.
   let replayStatus = "";
@@ -279,6 +302,9 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
     replayFile = sidebar.querySelector("#replay-file")!;
     // The HUD reads sim state every frame and keeps no counters of its own.
     hud = createHud(sidebar.querySelector("#hud")!);
+    // The cut-in overlay draws over the playfield (not the sidebar), so it lives in the
+    // shell's per-screen overlay layer. Reads sim state/events; keeps no counters.
+    cutins = createCutins(shell.overlay);
 
     saveBtn.addEventListener("click", () => {
       downloadReplay();
@@ -326,9 +352,14 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       buildDom();
       // A fresh run shouldn't inherit the previous run's sparks / flash / shake.
       shell.vfx.reset();
+      // Seed the cut-in appear tracker from the current boss presence (normally none at the
+      // start of a run — but loading a replay into a boss-present tick must not phantom-splash).
+      cutins.reset(sim.boss !== null);
+      spellTint = 0;
     },
     exit(): void {
       sidebar.innerHTML = "";
+      cutins.destroy();
     },
     frame(dtSeconds: number): void {
       // Advance the presentation clock (animation) by real elapsed time. Presentation-only;
@@ -373,7 +404,17 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       if (driver.tick > t0) {
         shell.audio.playEvents(sim.events);
         shell.vfx.consume(sim.events);
+        // Transient cut-ins (spell declaration portrait, bomb portrait, capture flourish) ride
+        // the SAME forward-advance gate so a scrub/replay-rebuild can't machine-gun them. The
+        // persistent chrome + the appear splash are state reads, done in `render` (see below).
+        cutins.trigger(sim.events, currentIdentity());
       }
+
+      // Spell-card background wash: ramp the tint toward full while an active phase is a spell,
+      // toward zero otherwise. Wall-clock lerp (dt), so it never touches the sim/hash and it
+      // follows scrub for free (the target is a pure state read).
+      const spellActive = sim.boss !== null && sim.boss.active && sim.boss.isSpell;
+      spellTint += ((spellActive ? SPELL_TINT_MAX : 0) - spellTint) * Math.min(1, dtSeconds * SPELL_TINT_RATE);
 
       // BGM follows sim STATE, not events: assert the wanted theme every frame (playBgm
       // is idempotent — a no-op unless it actually changed). Keyed on boss PRESENCE
@@ -406,6 +447,10 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       // the presentation clock (wall time), never the sim — so it's replay-irrelevant.
       const backgroundLayers = shell.def.stages[STAGE_INDEX]?.background?.layers;
       if (backgroundLayers) shell.background.draw(backgroundLayers, clock);
+      // Spell-card background swap: wash the scenery (over the background, under the danmaku)
+      // while a spell is active. Independent of any background layers — a bare field still
+      // tints. A no-op at zero alpha (no spell).
+      shell.background.drawTint(SPELL_TINT[0], SPELL_TINT[1], SPELL_TINT[2], spellTint);
 
       // Player: an alpha sprite (the character's craft, or the engine default) drawn under
       // the bullets; blinked off on alternate windows while invulnerable. Falls back to the
@@ -459,6 +504,10 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       shell.vfx.drawParticles(bullets);
       shell.vfx.drawFlash();
       hud.update(sim, driver, { beams, drawn, replayStatus });
+      // Persistent cut-in chrome (nameplate, spell banner) + the boss-appear splash edge, from
+      // sim STATE. Runs every rendered frame (even paused) so the appear edge is at-most-once
+      // and never stale across a scrub — see cutins.ts. Transient cues went through the gate.
+      cutins.reflect(sim.boss, currentIdentity());
     },
     hotReloadStage(): void {
       driver.resync();

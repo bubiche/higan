@@ -23,6 +23,26 @@ import type { AssetManifest } from "./audio";
 import type { SpriteHandle, BackgroundLayer } from "./sprites";
 
 /**
+ * A boss's presentation identity — its display name (shown on the nameplate + the
+ * appear splash) and cut-in portrait (shown when it declares a spell card). Purely
+ * presentation, and a SIBLING of `music`/`background` on `StageDef` for exactly that
+ * reason: the shell reads it to drive the boss splash / nameplate / spell cut-in, and
+ * the sim never sees it — so it never touches a determinism baseline or the replay
+ * `configId`. The `portrait` is a `SpriteHandle` (from a `defineSprites` block) resolved
+ * to a DOM image rather than atlased, so declare it OUTSIDE `assets.sprites.library`
+ * (the same routing rule backgrounds follow — a handle is atlased only if it's in the
+ * library). This describes the stage's HEADLINE boss; a midboss run via `ctx.boss(script)`
+ * has no nameplate yet (a documented extension, not built for the slice).
+ */
+export interface BossInfo {
+  /** Display name for the nameplate + the appear splash (e.g. a character/boss name). */
+  readonly name?: string;
+  /** Cut-in portrait, shown when the boss declares a spell card. DOM-resolved from its
+   *  source; declare the handle outside `assets.sprites.library` so it isn't atlased. */
+  readonly portrait?: SpriteHandle;
+}
+
+/**
  * One stage of a game. The `script` is the scene root: a coroutine (boss idiom) that
  * orchestrates the whole stage — directing enemy waves, then `yield* ctx.boss(...)`-ing
  * each encounter (a midboss, then the final boss) and resuming when it falls. The
@@ -36,6 +56,10 @@ export interface StageDef {
   readonly script: StageScript;
   /** The stage's headline boss, run by `ctx.boss()` with no argument, if any. */
   readonly boss?: BossScript;
+  /** The headline boss's presentation identity (nameplate name + spell cut-in portrait).
+   *  Presentation-only, read by the shell — never by the sim (a sibling of `music`/
+   *  `background`). Omit for a boss with no splash/nameplate/cut-in. */
+  readonly bossInfo?: BossInfo;
   /** BGM for the stage, as track ids into `assets.audio.bgm`: `stage` plays during the
    *  stage, `boss` (if given) during a boss encounter. Presentation-only — the in-game
    *  screen reads sim state and asserts the theme; the sim never sees this. Omit for a
@@ -62,6 +86,10 @@ export interface CharacterDef {
   /** The player craft sprite (render-only), from `defineSprites`. Optional — omit to use
    *  the engine's default player sprite. */
   readonly sprite?: SpriteHandle;
+  /** The character's cut-in portrait, shown when THIS character bombs. Presentation-only,
+   *  DOM-resolved from its source (declare it outside `assets.sprites.library` so it isn't
+   *  atlased). Optional — omit for no bomb cut-in (the bomb flash/shake still fires). */
+  readonly portrait?: SpriteHandle;
 }
 
 /**
