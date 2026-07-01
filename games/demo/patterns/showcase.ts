@@ -20,7 +20,7 @@ import {
   staged,
   wave,
   Shape,
-} from "../../../src/api";
+} from "higan";
 
 const CYAN: readonly [number, number, number] = [0.45, 0.85, 1.0];
 const MAGENTA: readonly [number, number, number] = [1.0, 0.45, 0.85];

@@ -1,122 +1,129 @@
 // The reference game's bootstrap.
 //
-// Runs the continuous determinism guard against this game's content, then hands the
-// definition to the engine shell. The guard runs on every (re)load so any
-// nondeterminism regression trips immediately (Hard Rule 2). Hot-reload swaps in
-// edited boss code, re-checks determinism against it, and resyncs the running stage
-// if one is in progress.
+// In development it runs the continuous determinism guard against this game's content,
+// then hands the definition to the engine shell. The guard runs on every dev (re)load
+// so any nondeterminism regression trips immediately (Hard Rule 2). Hot-reload swaps in
+// edited boss code, re-checks determinism against it, and resyncs the running stage if
+// one is in progress. The guard + self-tests are DEV-only (`import.meta.env.DEV`): they
+// dead-strip from the production bundle, where a player can't introduce nondeterminism
+// and the double-sim would only stall boot — so the deployed demo opens straight into
+// the title screen.
+//
+// Imports go through the public `higan*` package surface (the same names an external
+// game would use once the engine is published), never deep `../../src/...` paths:
+//   higan          — authoring API + core constants/types
+//   higan/app      — the app shell this bootstrap runs over
+//   higan/testing  — the determinism self-test harness (dev-only here)
 
-import { runGame, wireContentHMR } from "../../src/app";
-import { assertDeterministic } from "../../src/core/determinism";
-import { assertStreamIsolation } from "../../src/core/isolation";
-import { PATTERN_TICKS } from "../../src/core/sim";
-import { mixSeed } from "../../src/core/prng";
-import { DT, PLAYFIELD_H } from "../../src/core/playfield";
+import { runGame, wireContentHMR } from "higan/app";
+import { assertDeterministic, assertStreamIsolation, PATTERN_TICKS, mixSeed } from "higan/testing";
+import { DT, PLAYFIELD_H } from "higan";
 import { demoGame } from "./game";
 import { NORMAL } from "./difficulty";
 import { showcaseStage, stagedPattern } from "./patterns/showcase";
-import type { InputFrame } from "../../src/core/input";
-import type { GameDefinition, StageDef } from "../../src/api";
+import type { InputFrame, GameDefinition, StageDef } from "higan";
 
 const SEED = demoGame.seed;
 // The slice runs stage 0; its seed is mixed from the run seed exactly as the in-game
 // screen mixes it, so the guard exercises the seed the live scene actually runs on.
 const STAGE_SEED = mixSeed(SEED, 0);
-const stage = demoGame.stages[0]!;
 const character = demoGame.characters[0]!;
 
-// The determinism run holds shoot and weaves, so it exercises the WHOLE live scene
-// end to end: the opening enemy WAVES (spawn → bound enemy emitters → shot-vs-enemy
-// collision → death/cull), the MIDBOSS (both phases), the stage RESUMING when the
-// midboss falls + the post-midboss waves, then the final boss's four phases — opening
-// plus the three spells, including the live-group-retarget and the beam-rake lasers —
-// and finally the stage RETURNING (`stageComplete`). So the window covers the stage
-// root + multi-emitter scheduler, child-spawn, retarget, lasers, the per-stream RNG,
-// the player-shot pool + shot-vs-enemy/boss collision, AND the new sequential-boss
-// machinery (the awaited `ctx.boss()`, the midboss→final-boss handoff, the
-// encounter-end nulling, the stage-complete signal). NOTE: the weave doesn't centre on
-// the bosses, so every phase TIMES OUT here rather than being HP-captured — fine, the
-// determinism coverage of each is identical either way (both runPhase exits are
-// deterministic), and the DEFEAT-then-continue path (killing a boss to resume) is
-// proven separately. The scene now spans ~7770 ticks (midboss + waves precede the
-// boss), so the window is sized past it. If boot/HMR feels slow, sample every Nth tick
-// in the guard — coverage holds, cost drops.
+// Scripted input shared by the determinism guard and the HMR re-verify below. Populated
+// only in DEV (both are dev-only); stays empty in the production bundle.
 const scripted: InputFrame[] = [];
-const GUARD_TICKS = 8000;
-for (let i = 0; i < GUARD_TICKS; i++) {
-  scripted.push({
-    dx: (i >> 3) % 2 ? 1 : -1,
-    dy: 0,
-    shoot: true,
-    focus: i % 120 < 30,
-    bomb: false,
-  });
-}
 
-// Continuous determinism guard: same stage + seed + scripted input + character + rank,
-// twice, must hash identically. The scripted input holds shoot, so player shots fire,
-// damage the boss, and fold into the trajectory hash. The guard runs at NORMAL — the
-// rank whose content evaluates to the baseline counts — so its hash is the unchanged
-// reference (a different rank shapes a different, equally-reproducible trajectory).
-const det = assertDeterministic(stage, STAGE_SEED, scripted, DT, character, NORMAL, demoGame.config);
-console.info(
-  `[higan] determinism OK (stage ${stage.id}) — hash 0x${det.hashA
-    .toString(16)
-    .padStart(8, "0")} over ${det.ticks} ticks`,
-);
-
-// The boss exercises linear/accelerate/home/curve/lasers but not wave, delay, or
-// ramp's speed-change leg — so a second guard runs the full showcase pattern set
-// (as a guard-only stage that subs every showcase emitter) to keep those update-loop
-// branches under the continuous determinism net.
-const showcaseStageDef: StageDef = { id: "showcase", script: showcaseStage };
-const showcaseScript: InputFrame[] = [];
-for (let i = 0; i < PATTERN_TICKS * 13; i++) {
-  showcaseScript.push({
-    dx: ((i >> 4) % 3) - 1,
-    dy: ((i >> 5) % 3) - 1,
-    shoot: (i & 8) !== 0,
-    focus: i % 120 < 30,
-    bomb: false,
-  });
-}
-assertDeterministic(showcaseStageDef, STAGE_SEED, showcaseScript, DT, character, NORMAL, demoGame.config);
-
-// Every window above holds `bomb:false`, so the bomb path — the configurable field clear
-// (radial bullet-cancel, laser nuke, item vacuum, boss damage) and the rising-edge bomb
-// detect — would otherwise be unhashed-untested. A short window over the SECOND character
-// (whose bomb is the offensive radial one) presses bomb on a rising edge every 300 ticks so
-// those branches run under the continuous determinism net (A==B trips on any nondeterminism
-// the moment it creeps in). It fires during the opening waves — enough to cover the radial
-// cancel + laser-clear + item-vacuum + the boss-damage branch CONDITION; the boss-damage
-// actually LANDING and the exact-hash baseline are left to the headless verify, which can
-// afford the long boss-reaching window. Kept short so boot/HMR stays cheap.
-const bombChar = demoGame.characters[1]!;
-const bombScripted: InputFrame[] = [];
-for (let i = 0; i < 1500; i++) {
-  bombScripted.push({
-    dx: (i >> 4) % 2 ? 1 : -1,
-    dy: (i >> 5) % 2 ? 1 : -1,
-    shoot: true,
-    focus: i % 90 < 40,
-    bomb: i % 300 < 8, // held 8 ticks every 300 → a rising edge each window, so bombs deploy
-  });
-}
-const bombDet = assertDeterministic(stage, STAGE_SEED, bombScripted, DT, bombChar, NORMAL, demoGame.config);
-console.info(
-  `[higan] bomb-path determinism OK (${bombChar.id}) — hash 0x${bombDet.hashA
-    .toString(16)
-    .padStart(8, "0")} over ${bombDet.ticks} ticks`,
-);
-
-// Engine-seam self-test (DEV only — dead-stripped from the production bundle, where
-// a player can't introduce a stream-crossing bug): the boss's danmaku stream is
-// isolated from the play-dependent enemy stream (F4). Distinct from the determinism
-// guards above — those prove THIS game's scene reproduces; this proves a structural
-// engine property with its own minimal fixtures, by running two input streams that
-// kill different enemy counts and asserting the boss danmaku is bit-identical anyway.
-// So an edit that crosses the boss/enemy RNG streams trips here during development.
+// Continuous determinism guard + engine self-tests — DEV only (dead-stripped from
+// production). Same stage + seed + scripted input + character + rank, twice, must hash
+// identically. The scripted input holds shoot, so player shots fire, damage the boss,
+// and fold into the trajectory hash. The guard runs at NORMAL — the rank whose content
+// evaluates to the baseline counts — so its hash is the unchanged reference (a different
+// rank shapes a different, equally-reproducible trajectory).
 if (import.meta.env.DEV) {
+  const stage = demoGame.stages[0]!;
+
+  // The determinism run holds shoot and weaves, so it exercises the WHOLE live scene
+  // end to end: the opening enemy WAVES (spawn → bound enemy emitters → shot-vs-enemy
+  // collision → death/cull), the MIDBOSS (both phases), the stage RESUMING when the
+  // midboss falls + the post-midboss waves, then the final boss's four phases — opening
+  // plus the three spells, including the live-group-retarget and the beam-rake lasers —
+  // and finally the stage RETURNING (`stageComplete`). So the window covers the stage
+  // root + multi-emitter scheduler, child-spawn, retarget, lasers, the per-stream RNG,
+  // the player-shot pool + shot-vs-enemy/boss collision, AND the sequential-boss
+  // machinery (the awaited `ctx.boss()`, the midboss→final-boss handoff, the
+  // encounter-end nulling, the stage-complete signal). NOTE: the weave doesn't centre on
+  // the bosses, so every phase TIMES OUT here rather than being HP-captured — fine, the
+  // determinism coverage of each is identical either way (both runPhase exits are
+  // deterministic), and the DEFEAT-then-continue path (killing a boss to resume) is
+  // proven separately. The scene spans ~7770 ticks (midboss + waves precede the boss),
+  // so the window is sized past it.
+  const GUARD_TICKS = 8000;
+  for (let i = 0; i < GUARD_TICKS; i++) {
+    scripted.push({
+      dx: (i >> 3) % 2 ? 1 : -1,
+      dy: 0,
+      shoot: true,
+      focus: i % 120 < 30,
+      bomb: false,
+    });
+  }
+  const det = assertDeterministic(stage, STAGE_SEED, scripted, DT, character, NORMAL, demoGame.config);
+  console.info(
+    `[higan] determinism OK (stage ${stage.id}) — hash 0x${det.hashA
+      .toString(16)
+      .padStart(8, "0")} over ${det.ticks} ticks`,
+  );
+
+  // The boss exercises linear/accelerate/home/curve/lasers but not wave, delay, or
+  // ramp's speed-change leg — so a second guard runs the full showcase pattern set
+  // (as a guard-only stage that subs every showcase emitter) to keep those update-loop
+  // branches under the continuous determinism net.
+  const showcaseStageDef: StageDef = { id: "showcase", script: showcaseStage };
+  const showcaseScript: InputFrame[] = [];
+  for (let i = 0; i < PATTERN_TICKS * 13; i++) {
+    showcaseScript.push({
+      dx: ((i >> 4) % 3) - 1,
+      dy: ((i >> 5) % 3) - 1,
+      shoot: (i & 8) !== 0,
+      focus: i % 120 < 30,
+      bomb: false,
+    });
+  }
+  assertDeterministic(showcaseStageDef, STAGE_SEED, showcaseScript, DT, character, NORMAL, demoGame.config);
+
+  // Every window above holds `bomb:false`, so the bomb path — the configurable field clear
+  // (radial bullet-cancel, laser nuke, item vacuum, boss damage) and the rising-edge bomb
+  // detect — would otherwise be unhashed-untested. A short window over the SECOND character
+  // (whose bomb is the offensive radial one) presses bomb on a rising edge every 300 ticks so
+  // those branches run under the continuous determinism net (A==B trips on any nondeterminism
+  // the moment it creeps in). It fires during the opening waves — enough to cover the radial
+  // cancel + laser-clear + item-vacuum + the boss-damage branch CONDITION; the boss-damage
+  // actually LANDING and the exact-hash baseline are left to the headless verify, which can
+  // afford the long boss-reaching window. Kept short so boot/HMR stays cheap.
+  const bombChar = demoGame.characters[1]!;
+  const bombScripted: InputFrame[] = [];
+  for (let i = 0; i < 1500; i++) {
+    bombScripted.push({
+      dx: (i >> 4) % 2 ? 1 : -1,
+      dy: (i >> 5) % 2 ? 1 : -1,
+      shoot: true,
+      focus: i % 90 < 40,
+      bomb: i % 300 < 8, // held 8 ticks every 300 → a rising edge each window, so bombs deploy
+    });
+  }
+  const bombDet = assertDeterministic(stage, STAGE_SEED, bombScripted, DT, bombChar, NORMAL, demoGame.config);
+  console.info(
+    `[higan] bomb-path determinism OK (${bombChar.id}) — hash 0x${bombDet.hashA
+      .toString(16)
+      .padStart(8, "0")} over ${bombDet.ticks} ticks`,
+  );
+
+  // Engine-seam self-test: the boss's danmaku stream is isolated from the play-dependent
+  // enemy stream (F4). Distinct from the determinism guards above — those prove THIS
+  // game's scene reproduces; this proves a structural engine property with its own
+  // minimal fixtures, by running two input streams that kill different enemy counts and
+  // asserting the boss danmaku is bit-identical anyway. So an edit that crosses the
+  // boss/enemy RNG streams trips here during development.
   const iso = assertStreamIsolation(STAGE_SEED, DT);
   console.info(
     `[higan] stream isolation OK — boss danmaku stable over ${iso.ticks} ticks while ` +
@@ -127,9 +134,9 @@ if (import.meta.env.DEV) {
 // DEV-only pattern preview. The showcase guard stage overflows the store by design and
 // never renders, so normal play offers no way to *see* an individual pattern. With
 // `?preview=staged` in the URL, run a store-safe solo scene of the staged combinator
-// (fired from the upper field so the full ring reads) — the live eyeball for #7. Throwaway
-// and DEV-gated (dead-stripped from production); it touches neither the playable stage nor
-// any determinism baseline.
+// (fired from the upper field so the full ring reads) — the live eyeball for the staged
+// combinator. Throwaway and DEV-gated (dead-stripped from production); it touches neither
+// the playable stage nor any determinism baseline.
 const previewMode =
   import.meta.env.DEV && new URLSearchParams(location.search).get("preview") === "staged";
 const previewGame: GameDefinition = {
@@ -156,7 +163,8 @@ const app = runGame(previewMode ? previewGame : demoGame);
 // unbounded and force a full page reload (the engine's `wireContentHMR` header explains
 // why). `wireContentHMR` packages the swap+resync; `verify` keeps the determinism
 // tripwire (the game owns the seed/input/character it needs). The `accept(...)` literal
-// stays here because Vite resolves the dep string from THIS module's source.
+// stays here because Vite resolves the dep string from THIS module's source. DEV-only by
+// construction — `import.meta.hot` is undefined in the production build.
 if (!previewMode && import.meta.hot) {
   import.meta.hot.accept(
     "./game",

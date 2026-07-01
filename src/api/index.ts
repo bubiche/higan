@@ -68,3 +68,12 @@ export {
   type StagedEdit,
 } from "./controllers";
 export { Shape } from "../render/shapes";
+
+// Engine constants and core types an author references directly: the fixed timestep
+// and playfield dimensions (positioning content), the produced input frame (scripted
+// runs / replays), and the default player config to build a character from. These are
+// stable, presentation-agnostic primitives — re-exported here so a game imports only
+// the public surface, never `../core/*`.
+export { DT, PLAYFIELD_W, PLAYFIELD_H } from "../core/playfield";
+export type { InputFrame } from "../core/input";
+export { DEFAULT_PLAYER_CONFIG, type PlayerConfig } from "../touhou/player";

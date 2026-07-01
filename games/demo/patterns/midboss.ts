@@ -6,7 +6,7 @@
 // player drains each phase well inside the timer — a real fight, not a timed pause.
 // Pure of (rng, tick, target) like every other script, so it replays and hot-reloads.
 
-import { type BossScript, type EmitterScript, accelerate, Shape } from "../../../src/api";
+import { type BossScript, type EmitterScript, accelerate, Shape } from "higan";
 import { scale } from "../difficulty";
 
 const ICE: readonly [number, number, number] = [0.6, 0.85, 1.0];

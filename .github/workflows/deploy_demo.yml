@@ -1,0 +1,69 @@
+# Build the reference game and publish it to GitHub Pages on every push to main.
+# This deploys the DEMO (the static Vite build), not the engine package — the two are
+# independent. `pnpm build` runs `tsc --noEmit && vite build`; the relative `base` in
+# vite.config.ts lets the output work under the repo-name Pages subpath.
+#
+# Installs resolve against the public npm registry: a clean CI runner has no Cloudsmith
+# ~/.npmrc or env vars, so pnpm defaults to npmjs with no extra config. (The local
+# project .npmrc that overrides Cloudsmith is a dev-machine concern; CI doesn't need it.)
+name: Deploy demo to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; let an in-progress run finish rather than cancelling it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26.3.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      # Serve the demo at /<repo>/demo/ (the /<repo>/ root is reserved for the docs
+      # page later). vite.config.ts builds with a relative `base`, so the output works
+      # unchanged from the nested location — no rebuild, nothing hardcoded. The root
+      # index is a courtesy redirect so the bare repo URL lands on the demo; the future
+      # docs build replaces it.
+      - name: Assemble Pages site (demo under /demo)
+        run: |
+          mkdir -p _site/demo
+          cp -r dist/. _site/demo/
+          printf '%s\n' \
+            '<!doctype html>' \
+            '<meta charset="utf-8">' \
+            '<title>Higan</title>' \
+            '<meta http-equiv="refresh" content="0; url=./demo/">' \
+            '<link rel="canonical" href="./demo/">' \
+            '<a href="./demo/">Higan demo &rarr;</a>' \
+            > _site/index.html
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

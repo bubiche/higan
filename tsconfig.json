@@ -11,7 +11,12 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "higan": ["./src/api/index.ts"],
+      "higan/app": ["./src/app/index.ts"],
+      "higan/testing": ["./src/testing/index.ts"]
+    }
   },
   "include": ["src"]
 }

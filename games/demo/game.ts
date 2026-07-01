@@ -8,8 +8,14 @@
 // engine's sim economy work (player shots, enemies, items, scoring, multiple
 // stages) expands what a stage and character carry; this grows with it.
 
-import { defineGame, DEFAULT_RUN_CONFIG, Shape, type ShotConfig, type BombConfig } from "../../src/api";
-import { DEFAULT_PLAYER_CONFIG } from "../../src/touhou/player";
+import {
+  defineGame,
+  DEFAULT_RUN_CONFIG,
+  DEFAULT_PLAYER_CONFIG,
+  Shape,
+  type ShotConfig,
+  type BombConfig,
+} from "higan";
 import { DEMO_BOSS } from "./patterns/boss";
 import { demoStage } from "./patterns/stage";
 

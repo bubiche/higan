@@ -13,7 +13,7 @@ import {
   curve,
   home,
   Shape,
-} from "../../../src/api";
+} from "higan";
 import { scale } from "../difficulty";
 
 const CYAN: readonly [number, number, number] = [0.45, 0.85, 1.0];

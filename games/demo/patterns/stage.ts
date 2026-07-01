@@ -7,8 +7,7 @@
 // final boss; the run ends when this coroutine RETURNS (after the final boss), not
 // when any single boss is beaten, so a midboss falling just resumes the stage.
 
-import { type StageScript, type StageContext, type EmitterScript, Shape } from "../../../src/api";
-import { PLAYFIELD_W } from "../../../src/core/playfield";
+import { type StageScript, type StageContext, type EmitterScript, Shape, PLAYFIELD_W } from "higan";
 import { scale } from "../difficulty";
 import { MIDBOSS } from "./midboss";
 
