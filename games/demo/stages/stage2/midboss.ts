@@ -5,8 +5,9 @@
 // distinct from the Stage 1 midboss's accelerating pinwheel: a warm approach fan and a
 // rippling ring moiré. Pure of (rng, tick, target), so it replays and hot-reloads.
 
-import { type BossScript, type EmitterScript, curve, Shape } from "higan";
+import { type BossScript, type BossVisual, type EmitterScript, curve, Shape } from "higan";
 import { scale } from "../../difficulty";
+import { demoSprites } from "../../sprites";
 
 const EMBER: readonly [number, number, number] = [1.0, 0.5, 0.2];
 const ROSE: readonly [number, number, number] = [1.0, 0.45, 0.55];
@@ -55,4 +56,12 @@ const ripplingSparks: EmitterScript = function* (ctx) {
 export const EMBER_MIDBOSS: BossScript = function* (b) {
   yield* b.phase({ name: "Kindling", hp: 440, timeLimit: 720 }, kindling);
   yield* b.phase({ name: "Ember Sign 「Rippling Sparks」", hp: 660, timeLimit: 1000, isSpell: true }, ripplingSparks);
+};
+
+/** The Stage 2 midboss body — the SAME shared familiar sprite as Stage 1's midboss, tinted
+ *  ember-rose here (the white + tint idiom: one silhouette, a different look per encounter). */
+export const EMBER_MIDBOSS_VISUAL: BossVisual = {
+  sprite: demoSprites.midbossBody,
+  color: [1.0, 0.6, 0.5], // ember-rose
+  radius: 22,
 };

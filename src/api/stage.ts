@@ -43,6 +43,29 @@ export interface EnemySpec {
 }
 
 /**
+ * A boss's on-field BODY — the sprite the shell draws at the boss origin while the
+ * encounter runs. Purely render-only: the sim stores the resolved atlas layer + tint +
+ * radius (never the handle) and never folds any of it into the hash, exactly like an
+ * enemy's `sprite`/`color`. Passed to `ctx.boss(script, visual)` so it travels WITH the
+ * encounter — the midboss and the final boss each get their own body (they are distinct
+ * entities), unlike the headline-only `bossInfo` nameplate/portrait. Omit it (or omit
+ * `sprite`) for a bodiless boss — nothing is drawn, which is correct, not a bug.
+ */
+export interface BossVisual {
+  /** The boss's body sprite (render-only), from `defineSprites`. Declare it INSIDE
+   *  `assets.sprites.library` so it's atlased (the same routing enemies follow). Omit for
+   *  a bodiless boss. */
+  readonly sprite?: SpriteHandle;
+  /** Linear RGB tint, 0..1 (render-only). Multiplies the sprite's colour: a white
+   *  placeholder becomes this colour; give real/coloured art `[1,1,1]` to show it as
+   *  drawn. Default `[1,1,1]`. */
+  readonly color?: readonly [number, number, number];
+  /** Draw radius, sim units. Default: the boss's collision radius, so the body reads at
+   *  the size of the disc player shots damage. */
+  readonly radius?: number;
+}
+
+/**
  * One line of dialogue: optional speaker identity (a name label + portrait, shown
  * together — omit both for an unattributed narrator line) plus the line's text.
  * `side` picks which side of the box the portrait/name appear on (default "left") —
@@ -104,8 +127,13 @@ export interface StageContext {
    * With no `script`, runs the stage's headline `boss` (`StageDef.boss`) — kept a named
    * field so it can be hot-reloaded by name; pass a script for a midboss or any extra
    * encounter. Resolves immediately (a no-op) if no boss resolves.
+   *
+   * `visual` gives the boss an on-field BODY (see `BossVisual`) — a sprite drawn at the
+   * boss origin for this encounter. It travels with the encounter, so a midboss and the
+   * final boss each get their own; omit it for a bodiless boss. For the headline boss
+   * (no `script`), pass it as the second argument: `ctx.boss(undefined, visual)`.
    */
-  boss(script?: BossScript): Generator<number, void, unknown>;
+  boss(script?: BossScript, visual?: BossVisual): Generator<number, void, unknown>;
   /**
    * Request a dialogue sequence at this point in the stage. A PLAIN call — NOT
    * `yield*` — that returns immediately: it marks a presentation-only request for
@@ -142,8 +170,10 @@ export interface StageDeps {
   spawnEnemy(script: EmitterScript, x: number, y: number, spec: EnemySpec): void;
   /** Spawn a boss on the boss stream and return its root (or null if none resolves —
    *  `script` omitted AND the `StageDef` has no boss). The sim tracks it for HP-drain /
-   *  defeat; the stage awaits its `done` via `boss()`. */
-  spawnBoss(script?: BossScript): RunningEmitter | null;
+   *  defeat; the stage awaits its `done` via `boss()`. `visual` (render-only) becomes the
+   *  boss's on-field body — the sim stamps its resolved layer/tint/radius and never hashes
+   *  it. */
+  spawnBoss(script?: BossScript, visual?: BossVisual): RunningEmitter | null;
   /** Latch a dialogue request for the shell to pick up after this tick's step (sim.ts
    *  clears it at the top of the NEXT step — the same one-tick-window discipline as
    *  `events`). Zero RNG, not hashed — see `StageContext.dialogue`. */
@@ -156,8 +186,9 @@ export interface StageDeps {
 function* runBossEncounter(
   deps: StageDeps,
   script: BossScript | undefined,
+  visual: BossVisual | undefined,
 ): Generator<number, void, unknown> {
-  const root = deps.spawnBoss(script);
+  const root = deps.spawnBoss(script, visual);
   if (!root) return;
   while (!root.done) yield 1;
 }
@@ -184,8 +215,8 @@ export function startStage(
     spawnEnemy(script, ex, ey, spec) {
       deps.spawnEnemy(script, ex, ey, spec);
     },
-    boss(script) {
-      return runBossEncounter(deps, script);
+    boss(script, visual) {
+      return runBossEncounter(deps, script, visual);
     },
     dialogue(script) {
       deps.requestDialogue(script);

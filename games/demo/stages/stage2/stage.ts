@@ -9,7 +9,8 @@
 
 import { type StageScript, type StageContext, type EmitterScript, type Dialogue, accelerate, Shape, PLAYFIELD_W } from "higan";
 import { scale } from "../../difficulty";
-import { EMBER_MIDBOSS } from "./midboss";
+import { EMBER_MIDBOSS, EMBER_MIDBOSS_VISUAL } from "./midboss";
+import { EMBER_BOSS_VISUAL } from "./boss";
 import { demoSprites } from "../../sprites";
 import { demoPortraits } from "../../portraits";
 
@@ -142,7 +143,8 @@ export const emberStage: StageScript = function* (ctx) {
   yield 130;
 
   // ── Midboss ── awaited: the stage pauses here and the waves below resume when it falls.
-  yield* ctx.boss(EMBER_MIDBOSS);
+  // Second argument = its on-field body (the shared familiar, tinted for this stage).
+  yield* ctx.boss(EMBER_MIDBOSS, EMBER_MIDBOSS_VISUAL);
   yield 90;
 
   // ── Post-midboss waves ── the braziers are the stage's item anchors: one drops a life,
@@ -165,8 +167,9 @@ export const emberStage: StageScript = function* (ctx) {
   yield* mothLine(ctx, scale(ctx.difficulty, 6, 1), 28);
   yield 150;
 
-  // ── Final boss ── the stage RETURNS when it falls → the run ends "clear".
+  // ── Final boss ── the stage RETURNS when it falls → the run ends "clear". No script (it
+  // runs `StageDef.boss`), so the body is the second argument.
   ctx.dialogue(PRE_BOSS_DIALOGUE);
-  yield* ctx.boss();
+  yield* ctx.boss(undefined, EMBER_BOSS_VISUAL);
   ctx.dialogue(POST_BOSS_DIALOGUE);
 };

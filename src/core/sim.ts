@@ -45,7 +45,7 @@ import {
   type Vec2,
 } from "../api/emitter";
 import { startBoss, type BossDeps, type PhaseSpec, type BossScript } from "../api/boss";
-import { startStage, type StageDeps, type EnemySpec, type Dialogue } from "../api/stage";
+import { startStage, type StageDeps, type EnemySpec, type BossVisual, type Dialogue } from "../api/stage";
 import type { StageDef, CharacterDef } from "../api/game";
 import type { RunConfig } from "../api/config";
 import { PLAYFIELD_W, PLAYFIELD_H } from "./playfield";
@@ -123,6 +123,28 @@ export interface BossState {
   isSpell: boolean;
 }
 
+/**
+ * The boss's on-field BODY — purely render state for the shell to draw at the boss
+ * origin while an encounter runs. Presentation, exactly like an enemy's sprite/tint:
+ * `sprite` is a resolved atlas base layer (never the handle), NONE of it is folded into
+ * the hash, and a headless (no-GL) run leaves `sprite = -1` so every determinism
+ * baseline is untouched. Stamped from the `BossVisual` passed to `ctx.boss(...)`; only
+ * meaningful while `boss !== null`.
+ */
+export interface BossBody {
+  /** Body centre (the boss origin). */
+  x: number;
+  y: number;
+  /** Resolved atlas base layer, or -1 for a bodiless boss / unloaded atlas (draw nothing). */
+  sprite: number;
+  /** Linear RGB tint (multiplies the sprite's colour). */
+  r: number;
+  g: number;
+  b: number;
+  /** Draw radius, sim units. */
+  radius: number;
+}
+
 export interface Simulation {
   /** Number of fixed steps executed so far. */
   readonly tick: number;
@@ -145,6 +167,10 @@ export interface Simulation {
    *  between encounters and before the first. Read-only — the HUD displays it and
    *  keeps no counters of its own. */
   readonly boss: Readonly<BossState> | null;
+  /** The on-field boss body the shell draws at the boss origin (position + resolved sprite
+   *  layer + tint + radius). Render-only, never hashed (like enemy sprite/tint); read only
+   *  while `boss !== null`, and `sprite` is -1 for a bodiless boss. */
+  readonly bossBody: Readonly<BossBody>;
   /** The stage script has returned — the scene is over (its waves, midboss, and final
    *  boss are all done). This, not any single boss's defeat, is the run-end signal: a
    *  midboss falling resumes the stage rather than ending the run. */
@@ -303,6 +329,18 @@ export function createStageSim(
     timeLimit: 0,
     isSpell: false,
   };
+  // Render-only boss body (see BossBody). Position is the static origin; the sprite/tint/
+  // radius are (re)stamped by `spawnBoss` from each encounter's `BossVisual`. Bodiless
+  // (`sprite = -1`) until a boss with a body spawns; never hashed.
+  const bossBody: BossBody = {
+    x: BOSS_ORIGIN_X,
+    y: BOSS_ORIGIN_Y,
+    sprite: -1,
+    r: 1,
+    g: 1,
+    b: 1,
+    radius: BOSS_HIT_RADIUS,
+  };
   let nextGroupId = 1;
   // The boss currently on the field (midboss or final), or null between encounters.
   // A stage may run several bosses in sequence; each spawn replaces this, and it is
@@ -370,10 +408,19 @@ export function createStageSim(
   // `bossRoot` and resets the phase state; the stage's `boss()` await guarantees the
   // previous encounter is over first. `script` overrides the stage's headline boss
   // (`stageDef.boss`); with neither, there is no boss to spawn (null).
-  const spawnBoss = (script?: BossScript): RunningEmitter | null => {
+  const spawnBoss = (script?: BossScript, visual?: BossVisual): RunningEmitter | null => {
     const bossScript = script ?? stageDef.boss;
     if (!bossScript) return null;
     bossState.active = false;
+    // (Re)stamp the render-only body for THIS encounter — fully overwritten so a bodiless
+    // boss (no `visual`) also clears any prior encounter's body. `sprite?.layer` is the
+    // atlas layer the loader stamped (presentation); `-1` headless / unloaded / no sprite.
+    bossBody.sprite = visual?.sprite?.layer ?? -1;
+    const tint = visual?.color;
+    bossBody.r = tint ? tint[0] : 1;
+    bossBody.g = tint ? tint[1] : 1;
+    bossBody.b = tint ? tint[2] : 1;
+    bossBody.radius = visual?.radius ?? BOSS_HIT_RADIUS;
     bossRoot = startBoss(bossScript, BOSS_ORIGIN_X, BOSS_ORIGIN_Y, tick + 1, bossDeps);
     running.push(bossRoot);
     return bossRoot;
@@ -1024,6 +1071,7 @@ export function createStageSim(
     get boss() {
       return bossRoot ? bossState : null;
     },
+    bossBody,
     get stageComplete() {
       return stageRoot.done;
     },

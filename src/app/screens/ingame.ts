@@ -134,6 +134,9 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
   const itemInstances = new Float32Array(ITEM_CAPACITY * INSTANCE_FLOATS);
   // Reused scratch for the single-instance player-craft sprite draw.
   const playerInstance = new Float32Array(INSTANCE_FLOATS);
+  // Reused scratch for the single-instance boss-body sprite draw (drawn at the sim's boss
+  // origin while a boss is on the field, on the same alpha sprite pass as enemies).
+  const bossInstance = new Float32Array(INSTANCE_FLOATS);
   // Presentation clock (seconds), accumulated from real frame dt — drives sprite-sheet
   // animation. Purely presentation: never the sim tick, never hashed. Freezes while paused
   // (this screen's `frame` doesn't run under an overlay), which pauses animation too.
@@ -171,6 +174,11 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
   // Cosmetic overlays (out of the sim/hash): the player marker and the focus hitbox
   // dot. They read player state each frame; the sim is the source of truth.
   const playerMarker: Overlay = { x: 0, y: 0, radius: 7, color: [0.85, 0.95, 1.0], sprite: Shape.BigOrb };
+  // Glow-marker fallback for the boss body, used only if the atlas isn't loaded yet when a
+  // boss appears (e.g. an Extra stage that opens straight onto the boss) — so a boss with a
+  // body is never fully invisible. Normal play never reaches it (the atlas loads long before
+  // the first boss). A bodiless boss (no sprite) draws neither this nor a sprite.
+  const bossMarker: Overlay = { x: 0, y: 0, radius: 20, color: [1.0, 0.7, 0.85], sprite: Shape.BigOrb };
   const hitboxMarker: Overlay = {
     x: 0,
     y: 0,
@@ -570,6 +578,32 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
         sprites.layerForBase(base < 0 ? sprites.defaultEnemyLayer : base, clock),
       );
       sprites.drawInstances(enemyInstances, enemyCount);
+
+      // Boss body: the on-field boss sprite, drawn at the sim's boss origin while a boss is
+      // present (same alpha pass as enemies; the danmaku glow draws on top afterward). The
+      // sim exposes the body as render-only state (position + resolved base layer + tint +
+      // radius); the shell resolves the current animation frame and draws it, mirroring the
+      // player-craft path. A bodiless boss (base -1) draws nothing; a body whose atlas is not
+      // yet ready falls back to a glow marker so it is never fully invisible.
+      if (sim.boss !== null) {
+        const body = sim.bossBody;
+        const bossLayer = sprites.layerForBase(body.sprite, clock);
+        if (bossLayer >= 0) {
+          bossInstance[0] = body.x;
+          bossInstance[1] = body.y;
+          bossInstance[2] = body.radius;
+          bossInstance[3] = 0; // upright — the boss body doesn't velocity-rotate
+          bossInstance[4] = body.r;
+          bossInstance[5] = body.g;
+          bossInstance[6] = body.b;
+          bossInstance[7] = bossLayer;
+          sprites.drawInstances(bossInstance, 1);
+        } else if (body.sprite >= 0) {
+          bossMarker.x = body.x;
+          bossMarker.y = body.y;
+          overlays.push(bossMarker); // has a body, atlas still loading → glow fallback
+        }
+      }
       const itemCount = marshalItems(sim.items.items, itemInstances, (type: ItemType) =>
         sprites.layerForBase(sprites.itemBaseLayer(type), clock),
       );

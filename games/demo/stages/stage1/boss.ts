@@ -8,6 +8,7 @@
 
 import {
   type BossScript,
+  type BossVisual,
   type EmitterScript,
   accelerate,
   curve,
@@ -15,6 +16,7 @@ import {
   Shape,
 } from "higan";
 import { scale } from "../../difficulty";
+import { demoSprites } from "../../sprites";
 
 const CYAN: readonly [number, number, number] = [0.45, 0.85, 1.0];
 const MAGENTA: readonly [number, number, number] = [1.0, 0.45, 0.85];
@@ -112,4 +114,13 @@ export const DEMO_BOSS: BossScript = function* (b) {
   yield* b.phase({ name: "Veil Sign 「Spiral Veil」", hp: 900, timeLimit: 1200, isSpell: true }, spiralVeil);
   yield* b.phase({ name: "Hunt Sign 「Hunting Snap」", hp: 900, timeLimit: 1200, isSpell: true }, huntingSnap);
   yield* b.phase({ name: "Light Sign 「Beam Rake」", hp: 1100, timeLimit: 1400, isSpell: true }, beamRake);
+};
+
+/** The gatekeeper's on-field body, drawn at the boss origin during the encounter. The stage
+ *  passes it as the SECOND `ctx.boss` argument — the headline boss takes no script (it runs
+ *  `StageDef.boss`), so the body goes in `ctx.boss(undefined, DEMO_BOSS_VISUAL)`. */
+export const DEMO_BOSS_VISUAL: BossVisual = {
+  sprite: demoSprites.gatekeeperBody,
+  color: [0.5, 0.72, 1.0], // azure, echoing the gatekeeper's portrait
+  radius: 30,
 };

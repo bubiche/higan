@@ -9,7 +9,8 @@
 
 import { type StageScript, type StageContext, type EmitterScript, type Dialogue, Shape, PLAYFIELD_W } from "higan";
 import { scale } from "../../difficulty";
-import { MIDBOSS } from "./midboss";
+import { MIDBOSS, MIDBOSS_VISUAL } from "./midboss";
+import { DEMO_BOSS_VISUAL } from "./boss";
 import { demoSprites } from "../../sprites";
 import { demoPortraits } from "../../portraits";
 
@@ -140,7 +141,9 @@ export const demoStage: StageScript = function* (ctx) {
   yield 130;
 
   // ── Midboss ── awaited: the stage pauses here and the waves below resume when it falls.
-  yield* ctx.boss(MIDBOSS);
+  // The second argument is its on-field body (a midboss and the final boss each get their
+  // own; see `ctx.boss`).
+  yield* ctx.boss(MIDBOSS, MIDBOSS_VISUAL);
   yield 90;
 
   // ── Post-midboss waves ──
@@ -164,8 +167,9 @@ export const demoStage: StageScript = function* (ctx) {
   yield* popcornLine(ctx, scale(ctx.difficulty, 6, 1), 30);
   yield 150;
 
-  // ── Final boss ── the stage RETURNS when it falls → run ends "clear".
+  // ── Final boss ── the stage RETURNS when it falls → run ends "clear". No script (it runs
+  // `StageDef.boss`), so the body is the second argument.
   ctx.dialogue(PRE_BOSS_DIALOGUE);
-  yield* ctx.boss();
+  yield* ctx.boss(undefined, DEMO_BOSS_VISUAL);
   ctx.dialogue(POST_BOSS_DIALOGUE);
 };

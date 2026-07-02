@@ -9,6 +9,7 @@
 
 import {
   type BossScript,
+  type BossVisual,
   type EmitterScript,
   curve,
   home,
@@ -17,6 +18,7 @@ import {
   Shape,
 } from "higan";
 import { scale } from "../../difficulty";
+import { demoSprites } from "../../sprites";
 
 // The stage's dusk/ember palette — warm, to contrast Stage 1's cool azure.
 const EMBER: readonly [number, number, number] = [1.0, 0.5, 0.2];
@@ -116,4 +118,12 @@ export const EMBER_BOSS: BossScript = function* (b) {
   yield* b.phase({ name: "Flame Sign 「Cinder Rondo」", hp: 980, timeLimit: 1260, isSpell: true }, cinderRondo);
   yield* b.phase({ name: "Bloom Sign 「Kiln Petals」", hp: 980, timeLimit: 1260, isSpell: true }, kilnPetals);
   yield* b.phase({ name: "Ember Sign 「Phoenix Waltz」", hp: 1180, timeLimit: 1500, isSpell: true }, phoenixWaltz);
+};
+
+/** The Ember Songstress's on-field body, drawn at the boss origin during the encounter.
+ *  Passed as the second `ctx.boss` argument (the headline boss takes no script). */
+export const EMBER_BOSS_VISUAL: BossVisual = {
+  sprite: demoSprites.songstressBody,
+  color: [1.0, 0.55, 0.35], // ember, echoing her portrait
+  radius: 30,
 };

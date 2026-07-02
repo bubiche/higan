@@ -6,8 +6,9 @@
 // player drains each phase well inside the timer — a real fight, not a timed pause.
 // Pure of (rng, tick, target) like every other script, so it replays and hot-reloads.
 
-import { type BossScript, type EmitterScript, accelerate, Shape } from "higan";
+import { type BossScript, type BossVisual, type EmitterScript, accelerate, Shape } from "higan";
 import { scale } from "../../difficulty";
+import { demoSprites } from "../../sprites";
 
 const ICE: readonly [number, number, number] = [0.6, 0.85, 1.0];
 const ROSE: readonly [number, number, number] = [1.0, 0.6, 0.7];
@@ -52,4 +53,12 @@ const whirligig: EmitterScript = function* (ctx) {
 export const MIDBOSS: BossScript = function* (b) {
   yield* b.phase({ name: "Approach", hp: 420, timeLimit: 720 }, approach);
   yield* b.phase({ name: "Pinwheel Sign 「Whirligig」", hp: 620, timeLimit: 1000, isSpell: true }, whirligig);
+};
+
+/** The midboss body — the shared familiar sprite, tinted ice for this stage. The stage
+ *  passes it alongside the script: `ctx.boss(MIDBOSS, MIDBOSS_VISUAL)`. */
+export const MIDBOSS_VISUAL: BossVisual = {
+  sprite: demoSprites.midbossBody,
+  color: [0.6, 0.9, 1.0], // ice
+  radius: 22,
 };
