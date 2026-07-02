@@ -8,10 +8,10 @@
 // when any single boss is beaten, so a midboss falling just resumes the stage.
 
 import { type StageScript, type StageContext, type EmitterScript, type Dialogue, Shape, PLAYFIELD_W } from "higan";
-import { scale } from "../difficulty";
+import { scale } from "../../difficulty";
 import { MIDBOSS } from "./midboss";
-import { demoSprites } from "../sprites";
-import { demoPortraits } from "../portraits";
+import { demoSprites } from "../../sprites";
+import { demoPortraits } from "../../portraits";
 
 const AMBER: readonly [number, number, number] = [1, 0.75, 0.3];
 const TEAL: readonly [number, number, number] = [0.5, 0.9, 0.85];

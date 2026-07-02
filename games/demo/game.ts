@@ -16,8 +16,8 @@ import {
   type ShotConfig,
   type BombConfig,
 } from "higan";
-import { DEMO_BOSS } from "./patterns/boss";
-import { demoStage } from "./patterns/stage";
+import { DEMO_BOSS } from "./stages/stage1/boss";
+import { demoStage } from "./stages/stage1/stage";
 import { demoAudio, demoBgm } from "./audio";
 import { demoSprites } from "./sprites";
 import { demoPortraits } from "./portraits";

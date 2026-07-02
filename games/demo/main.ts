@@ -20,7 +20,7 @@ import { assertDeterministic, assertStreamIsolation, PATTERN_TICKS, mixSeed } fr
 import { DT, PLAYFIELD_H } from "higan";
 import { demoGame } from "./game";
 import { NORMAL } from "./difficulty";
-import { showcaseStage, stagedPattern } from "./patterns/showcase";
+import { showcaseStage, stagedPattern } from "./showcase";
 import type { InputFrame, GameDefinition, StageDef } from "higan";
 
 const SEED = demoGame.seed;

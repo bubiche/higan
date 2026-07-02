@@ -14,7 +14,7 @@ import {
   home,
   Shape,
 } from "higan";
-import { scale } from "../difficulty";
+import { scale } from "../../difficulty";
 
 const CYAN: readonly [number, number, number] = [0.45, 0.85, 1.0];
 const MAGENTA: readonly [number, number, number] = [1.0, 0.45, 0.85];
