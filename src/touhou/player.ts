@@ -109,6 +109,58 @@ export interface Player {
   state: PlayerState;
 }
 
+/**
+ * The run-economy subset of `Player` that persists across a stage boundary. When a run
+ * advances to the next stage, these fields are handed forward (the player keeps their
+ * score, lives, bombs, power, etc.); everything NOT here is a fresh per-stage start via
+ * `createPlayer` — position, focus, the i-frame/deathbomb timers, the bomb edge bit, the
+ * lifecycle state, and the per-spell capture flag. A fresh stage, a continue, and a
+ * standalone (Extra/practice) run all start from `createPlayer` defaults with no carry-in.
+ *
+ * Every field here is already a hashed `Player` field, so carry-in enters the next stage's
+ * hash purely as initial player state — it is a deterministic outcome of the prior stage
+ * (a pure function of the run seed + the prior play), so replays reproduce it exactly.
+ */
+export interface CarryIn {
+  readonly lives: number;
+  readonly bombs: number;
+  readonly power: number;
+  readonly score: number;
+  readonly piv: number;
+  readonly nextExtendIndex: number;
+  readonly graze: number;
+  readonly pointItemsCollected: number;
+}
+
+/** Snapshot the run-economy fields off a finished stage's player, to hand into the next
+ *  stage. A fresh object, so later stage-2 mutations can't bleed back into the stash. */
+export function readCarryIn(p: Readonly<Player>): CarryIn {
+  return {
+    lives: p.lives,
+    bombs: p.bombs,
+    power: p.power,
+    score: p.score,
+    piv: p.piv,
+    nextExtendIndex: p.nextExtendIndex,
+    graze: p.graze,
+    pointItemsCollected: p.pointItemsCollected,
+  };
+}
+
+/** Overwrite a freshly-created player's run-economy fields with a carried-in state
+ *  (a stage-advance). The per-stage-reset fields (position, timers, lifecycle) are left
+ *  at their `createPlayer` values. */
+export function applyCarryIn(p: Player, c: CarryIn): void {
+  p.lives = c.lives;
+  p.bombs = c.bombs;
+  p.power = c.power;
+  p.score = c.score;
+  p.piv = c.piv;
+  p.nextExtendIndex = c.nextExtendIndex;
+  p.graze = c.graze;
+  p.pointItemsCollected = c.pointItemsCollected;
+}
+
 /** `pivBase` is the run's starting point-item value (`ScoringConfig.pivBase`), passed
  *  in so the player struct stays free of the scoring economy module. */
 export function createPlayer(cfg: PlayerConfig, x: number, y: number, pivBase: number): Player {

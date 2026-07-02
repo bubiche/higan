@@ -22,7 +22,7 @@ import { SfxId } from "../../core/events";
 import { mixSeed } from "../../core/prng";
 import { createSimDriver, type SimDriver } from "../../core/runtime";
 import { DT } from "../../core/playfield";
-import { PlayerState } from "../../touhou/player";
+import { PlayerState, readCarryIn, type CarryIn } from "../../touhou/player";
 import { serializeRunReplay, deserializeRunReplay, type RunReplay } from "../../touhou/replay";
 import { computeConfigId } from "../replay-compat";
 import { Shape } from "../../render/shapes";
@@ -84,27 +84,27 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
   // place (re-captured below in `loadReplayFile`, mirroring the difficulty adopt), so the
   // next rebuild runs as it.
   let character = def.characters[run.character]!;
-  // The slice runs the first stage as stage 0 of the run. The driver is seeded with
-  // the RUN seed (what a replay captures); the per-stage seed is mixed from it, so
-  // chaining more stages later only changes the index. `buildSim` reads the stage from
-  // `shell.def` FRESH each time (not a captured binding) so a hot-reload — which swaps
-  // `shell.def` for the freshly-imported game and then resyncs — rebuilds with the new
-  // code, AND a brand-new run (retry / return-to-title → start) picks it up too; it
-  // reads `run.difficulty` fresh too, so an adopted replay rank lands on the next
-  // rebuild. The sim is reassignable so backward-scrub / hot-reload / a new run / a
-  // loaded replay can rebuild. (The character is captured in the `character` binding:
-  // editing the player config takes effect on the next fresh run, not the live one —
-  // content scripts hot-reload. Loading a replay re-captures it, so the rebuild runs as
-  // the recorded character.)
-  const STAGE_INDEX = 0;
+  // The run's CURRENT stage index — 0 for a fresh run, advanced as stages are cleared (a
+  // continue keeps it; a loaded replay sets it per segment). The driver is seeded with the
+  // RUN seed (what a replay captures); the per-stage seed is mixed from it with the stage
+  // index, so chaining stages only changes the index. `buildSim` reads the stage, the
+  // index, the carry-in, and the rank from `run`/`shell.def` FRESH each time (not captured)
+  // so a hot-reload — which swaps `shell.def` and resyncs — rebuilds with the new code; a
+  // brand-new run, a stage-advance, and a loaded replay all rebuild through it too. It hands
+  // `run.carryIn` (the prior stage's end-state on an advance, else null) to the sim as the
+  // player's starting run-economy. The sim is reassignable so backward-scrub / hot-reload /
+  // a new run / a loaded replay can rebuild. (The character is captured in the `character`
+  // binding: editing the player config takes effect on the next fresh run, not the live one.
+  // Loading a replay re-captures it, so the rebuild runs as the recorded character.)
   const buildSim = (runSeed: number): Simulation =>
     createStageSim(
-      shell.def.stages[STAGE_INDEX]!,
-      mixSeed(runSeed, STAGE_INDEX),
+      shell.def.stages[run.currentStageIndex]!,
+      mixSeed(runSeed, run.currentStageIndex),
       character,
       run.difficulty,
       shell.def.config,
       DT,
+      run.carryIn ?? undefined,
     );
   let sim: Simulation = buildSim(run.runSeed);
 
@@ -145,7 +145,7 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
   // from `shell.def` + the current character each frame so a content hot-reload / the loaded
   // replay's character take effect. Presentation-only — the sim never sees any of it.
   const currentIdentity = (): CutinIdentity => {
-    const info = shell.def.stages[STAGE_INDEX]?.bossInfo;
+    const info = shell.def.stages[run.currentStageIndex]?.bossInfo;
     return { bossName: info?.name, bossPortrait: info?.portrait, playerPortrait: character.portrait };
   };
 
@@ -192,7 +192,7 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
     // the controller (priors + the current play) is the normal save. (Resuming a live run
     // out of a loaded replay is the run-state handoff story, deferred.)
     const recording = driver.getRecording();
-    const replay = loadedReplay ?? run.assembleReplay({ stageIndex: STAGE_INDEX, frames: recording.frames });
+    const replay = loadedReplay ?? run.assembleReplay({ stageIndex: run.currentStageIndex, frames: recording.frames });
     const blob = serializeRunReplay(replay);
     // `as BlobPart`: the Uint8Array is a valid blob part at runtime; the cast
     // bridges TS's typed-array buffer generic to the DOM's ArrayBuffer.
@@ -216,15 +216,46 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
         : `saved ${liveFrames} frames`;
   };
 
-  // Load segment `i` of the currently-loaded replay into the live driver: rebuild at the
-  // adopted rank (via `buildSim`, reading `run.difficulty`) seeded with the RUN seed —
-  // NOT a per-stage seed; `buildSim` mixes the stage index in itself, so passing a mixed
-  // seed here would double-mix and reproduce the WRONG trajectory — then replay the
-  // segment's frames to the end, paused. The button advances `i` through the segments.
+  // Reconstruct the run-economy state segment `target` STARTED from, by re-running the
+  // prior segments in order (no per-segment entry-state is stored in the blob — the state
+  // is exactly recomputable, so it isn't). Fold from segment 0, applying the SAME
+  // continue-vs-advance rule the live run uses: a segment whose stageIndex is the prior's
+  // +1 is an advance (carry that play's end-state forward); a repeated stageIndex is a
+  // continue (reset to a fresh start). Returns null for segment 0 (always fresh) and for a
+  // segment reached by a continue. Re-running is exact (determinism), and it is a direct
+  // extension of the existing multi-segment trajectory fold used to replay a continued run.
+  const carryInForSegment = (blob: RunReplay, target: number): CarryIn | null => {
+    let carry: CarryIn | null = null;
+    for (let j = 0; j < target; j++) {
+      const idx = blob.segments[j]!.stageIndex;
+      const priorSim = createStageSim(
+        shell.def.stages[idx]!,
+        mixSeed(blob.runSeed, idx),
+        character,
+        run.difficulty,
+        shell.def.config,
+        DT,
+        carry ?? undefined,
+      );
+      for (const f of blob.segments[j]!.frames) priorSim.step(f);
+      carry = blob.segments[j + 1]!.stageIndex === idx + 1 ? readCarryIn(priorSim.player) : null;
+    }
+    return carry;
+  };
+
+  // Load segment `i` of the currently-loaded replay into the live driver: point the
+  // controller at this segment's stage index + reconstruct the carry-in it started from
+  // (set IN PLACE, like the adopted rank/character), then rebuild via `buildSim` — which
+  // reads that index, carry-in, and rank — seeded with the RUN seed (NOT a per-stage seed;
+  // `buildSim` mixes the stage index in itself, so pre-mixing here would double-mix and
+  // reproduce the WRONG trajectory) — then replay the segment's frames to the end, paused.
+  // The button advances `i` through the segments.
   const loadSegment = (i: number): void => {
     const blob = loadedReplay!;
     const seg = blob.segments[i]!;
     replayIndex = i;
+    run.currentStageIndex = seg.stageIndex;
+    run.carryIn = carryInForSegment(blob, i);
     driver.loadRecording({ seed: blob.runSeed, frames: seg.frames });
     const total = blob.segments.length;
     replayStatus =
@@ -264,12 +295,21 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       replayStatus = "load failed: replay has no segments";
       return;
     }
-    // The slice runs only stage 0, so every segment must be a stage-0 play (a continue).
-    // The format supports per-stage indices for multi-stage runs, but `buildSim` can only
-    // build stage 0 until then — reject a genuine multi-stage blob rather than mis-seed it.
-    if (replay.segments.some((s) => s.stageIndex !== STAGE_INDEX)) {
-      replayStatus = "load failed: multi-stage replay not yet supported";
+    // A multi-stage run's segments span stages: a continue REPEATS a stage index, an
+    // advance is +1. Reconstructing each segment's carry-in relies on that: reject a blob
+    // whose stage indices are out of range or non-contiguous (a decrease, or a jump > 1),
+    // rather than mis-reconstruct — the only valid steps between consecutive segments are
+    // 0 (continue) and +1 (advance).
+    if (replay.segments.some((s) => s.stageIndex < 0 || s.stageIndex >= def.stages.length)) {
+      replayStatus = "load failed: replay references a stage this game doesn't have";
       return;
+    }
+    for (let i = 1; i < replay.segments.length; i++) {
+      const step = replay.segments[i]!.stageIndex - replay.segments[i - 1]!.stageIndex;
+      if (step !== 0 && step !== 1) {
+        replayStatus = "load failed: replay stage sequence is not contiguous";
+        return;
+      }
     }
     // Adopt the recorded rank AND character IN PLACE on the controller, then play the
     // segments. Done in place rather than by swapping to a fresh screen: the Save/Load
@@ -277,10 +317,10 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
     // sits on top, so a `router.replace` here would pop the OVERLAY and orphan the in-game
     // screen beneath — which keeps rendering its now-frozen player marker (a "phantom"
     // second player). Rebuilding this screen's own sim can't orphan anything. Each segment
-    // is a separate play (a continue), so they load one at a time: land at the first,
-    // advance with the button — each advance is a real replay that reproduces that segment
-    // at the adopted rank + character, so the multi-segment run is demonstrably bit-
-    // identical across all of them.
+    // is a separate play (a continue OR a stage-advance), so they load one at a time: land
+    // at the first, advance with the button — each load reconstructs that segment's carry-in
+    // from the priors and reproduces it at the adopted rank + character, so the multi-segment,
+    // multi-stage run is demonstrably bit-identical across all of them.
     loadedReplay = replay;
     run.difficulty = replay.difficulty;
     // Re-capture the character binding (and the cosmetic hitbox dot it sizes) BEFORE
@@ -341,12 +381,27 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       // run; on give-up it's dropped (the run ended). The driver hasn't advanced since
       // game-over fired, so its recording is final at the death tick.
       shell.router.push(
-        createContinueScreen(shell, run, { stageIndex: STAGE_INDEX, frames: driver.getRecording().frames }),
+        createContinueScreen(shell, run, { stageIndex: run.currentStageIndex, frames: driver.getRecording().frames }),
       );
+    } else if (run.hasNextStage) {
+      // Cleared, but the run continues to the next stage. CAPTURE this stage's end-state
+      // now (the sim keeps stepping during the fade, so freeze the recording + carry-in at
+      // the clear tick), but ADVANCE the controller only inside the transition callback —
+      // at the swap, under full black. That keeps `run.currentStageIndex` at THIS stage
+      // during the fade, so the outgoing screen still reads this stage's background /
+      // nameplate / BGM rather than leaking the next one's. The finished play becomes a
+      // prior segment (no continue spent); the fresh screen then builds the next stage's
+      // sim with `run.carryIn` applied. Fade through black like any clear.
+      const seg = { stageIndex: run.currentStageIndex, frames: driver.getRecording().frames };
+      const carry = readCarryIn(sim.player);
+      shell.transition(() => {
+        run.advanceStage(seg, carry);
+        shell.router.replace(createInGameScreen(shell, run));
+      });
     } else {
-      // Clear: hand the final score (read off the sim) to results, fading through black. The
-      // game-over path instead PUSHES the continue prompt (no fade — it keeps the frozen death
-      // moment visible behind the prompt).
+      // Final stage cleared (or a standalone run): hand the final score to results, fading
+      // through black. (The ending/staff-roll screen lands on this path later.) The game-over
+      // path instead PUSHES the continue prompt (no fade — it keeps the frozen death moment).
       shell.transition(() => shell.router.replace(createResultsScreen(shell, outcome, sim.player.score)));
     }
   };
@@ -443,7 +498,7 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       // it is a state read, it follows scrub / step-back for free. Read `music` fresh
       // from `shell.def` so a hot-reload that adds/edits it takes effect. Omitted → the
       // screen leaves whatever's playing (a silent stage doesn't force silence).
-      const music = shell.def.stages[STAGE_INDEX]?.music;
+      const music = shell.def.stages[run.currentStageIndex]?.music;
       if (music) shell.audio.playBgm((sim.boss ? (music.boss ?? music.stage) : music.stage).id);
 
       // Transition only during live play — never while paused/stepping/scrubbing or
@@ -465,7 +520,7 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       // Parallax background FIRST, behind everything, over the shell's clear. Read the
       // stage's layers fresh from `shell.def` so a hot-reload picks up edits; scroll runs off
       // the presentation clock (wall time), never the sim — so it's replay-irrelevant.
-      const backgroundLayers = shell.def.stages[STAGE_INDEX]?.background?.layers;
+      const backgroundLayers = shell.def.stages[run.currentStageIndex]?.background?.layers;
       if (backgroundLayers) shell.background.draw(backgroundLayers, clock);
       // Spell-card background swap: wash the scenery (over the background, under the danmaku)
       // while a spell is active. Independent of any background layers — a bare field still

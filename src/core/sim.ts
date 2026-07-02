@@ -52,10 +52,12 @@ import { PLAYFIELD_W, PLAYFIELD_H } from "./playfield";
 import type { InputFrame } from "./input";
 import {
   createPlayer,
+  applyCarryIn,
   stepPlayerMovement,
   stepPlayerLifecycle,
   PlayerState,
   type Player,
+  type CarryIn,
 } from "../touhou/player";
 import { stepCollision } from "../touhou/collision";
 import {
@@ -172,6 +174,7 @@ export function createStageSim(
   difficulty: number,
   runConfig: RunConfig,
   dt: number,
+  carryIn?: CarryIn,
 ): Simulation {
   const config = character.config;
   const shot = character.shot ?? DEFAULT_SHOT_CONFIG;
@@ -217,6 +220,13 @@ export function createStageSim(
   const BOSS_ORIGIN_X = PLAYFIELD_W / 2;
   const BOSS_ORIGIN_Y = PLAYFIELD_H * 0.16;
   const player = createPlayer(config, START_X, START_Y, scoring.pivBase);
+  // On a stage-advance the run hands its economy forward: overwrite the fresh player's
+  // run-economy fields (score/lives/bombs/power/…) with the prior stage's end-state. The
+  // per-stage-reset fields (position, i-frames, lifecycle) stay at their createPlayer
+  // values. Omitted (stage 1, a continue, a standalone Extra/practice run) = the fresh
+  // full-resource start, so those runs — and every existing determinism baseline — are
+  // bit-identical to before this parameter existed.
+  if (carryIn) applyCarryIn(player, carryIn);
   // The shared aim/home target. A stable object that views the player position:
   // emitters and the bullet update loop read it each tick; we mutate its fields in
   // place rather than replacing it.

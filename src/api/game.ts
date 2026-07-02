@@ -71,6 +71,12 @@ export interface StageDef {
    *  resolution). Presentation-only — scroll runs off a wall clock, never the sim, so it
    *  never touches a determinism baseline or the replay configId. Omit for a bare field. */
   readonly background?: { readonly layers: readonly BackgroundLayer[] };
+  /** Marks this stage as an EXTRA stage — outside the main campaign chain. A normal run
+   *  chains the non-`extra` stages in `def.stages` order and hands run-state across each
+   *  boundary; an `extra` stage is entered only as a standalone single-stage run (full
+   *  resources, no advance-to-next). Default false. Keeping ONE `stages[]` array (rather
+   *  than a separate list) preserves the single stage-index space replays record. */
+  readonly extra?: boolean;
 }
 
 /** A playable character: its movement/life tuning plus its shot and bomb definitions. */
@@ -153,6 +159,17 @@ export function defineGame(def: GameDefinition): GameDefinition {
   }
   if (def.characters.length === 0) {
     throw new Error("defineGame: a game needs at least one playable character.");
+  }
+  // Extra stages must come AFTER every main-campaign stage, so the main chain is a
+  // contiguous prefix [0..m-1] of `stages`. That keeps each stage-advance a +1 step in
+  // the shared stage-index space, which is what lets a replay distinguish an advance
+  // (index +1) from a continue (same index) without storing the run's stage sequence.
+  const firstExtra = def.stages.findIndex((s) => s.extra);
+  if (firstExtra !== -1 && def.stages.slice(firstExtra).some((s) => !s.extra)) {
+    throw new Error("defineGame: extra stages must come after all main-campaign stages.");
+  }
+  if (def.stages.every((s) => s.extra)) {
+    throw new Error("defineGame: a game needs at least one main-campaign (non-extra) stage.");
   }
   return def;
 }
