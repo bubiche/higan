@@ -52,7 +52,7 @@ export {
   type ItemConfig,
 } from "./config";
 
-export { DEFAULT_SHOT_CONFIG, type ShotConfig } from "../touhou/shot";
+export { DEFAULT_SHOT_CONFIG, type ShotConfig, type HomingShotConfig } from "../touhou/shot";
 export { DEFAULT_BOMB_CONFIG, type BombConfig } from "../touhou/bomb";
 
 // Audio authoring surface. `SfxId` is the sound vocabulary the sim emits against (an

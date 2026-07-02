@@ -61,6 +61,7 @@ import { stepCollision } from "../touhou/collision";
 import {
   createShotSystem,
   fireShots,
+  stepShotHoming,
   stepShotCollision,
   DEFAULT_SHOT_CONFIG,
   type ShotSystem,
@@ -220,6 +221,11 @@ export function createStageSim(
   // emitters and the bullet update loop read it each tick; we mutate its fields in
   // place rather than replacing it.
   const target: Vec2 = { x: player.x, y: player.y };
+  // Scratch list for homing player shots: rebuilt each tick from live enemies + the
+  // active boss (see step 4a below). Reused in place (`.length = 0`) rather than
+  // reallocated; pushing `Enemy` objects directly is fine (they satisfy `{x, y}`
+  // structurally) and costs no copy.
+  const homingTargets: { x: number; y: number }[] = [];
 
   let tick = 0;
   // Rising-edge latch for the one-shot stage-clear bonus (awarded when the stage script
@@ -544,8 +550,9 @@ export function createStageSim(
   const lspin = new Float32Array(LASER_CAPACITY);
   const lage = new Float32Array(LASER_CAPACITY);
   // Player-shot scratch (live shots, packed in pool order — deterministic). Motion
-  // + the sim-affecting fields (damage drains boss HP, radius sets the hit test);
-  // sprite/colour are render-only and left out, as laser colour is.
+  // + the sim-affecting fields (damage drains boss HP, radius sets the hit test,
+  // homing is the turn rate steering vx/vy — same rationale as a bullet's behaviour
+  // bp); sprite/colour are render-only and left out, as laser colour is.
   const shx = new Float32Array(SHOT_CAPACITY);
   const shy = new Float32Array(SHOT_CAPACITY);
   const shvx = new Float32Array(SHOT_CAPACITY);
@@ -553,6 +560,7 @@ export function createStageSim(
   const shage = new Float32Array(SHOT_CAPACITY);
   const shdmg = new Float32Array(SHOT_CAPACITY);
   const shrad = new Float32Array(SHOT_CAPACITY);
+  const shhoming = new Float32Array(SHOT_CAPACITY);
   // Enemy scratch (live enemies, packed in pool order — deterministic). The evolving
   // state (position, hp, age) + the constant radius (a spawn-path tripwire, like a
   // laser's length); sprite/colour are render-only, left out as the laser's are.
@@ -658,6 +666,17 @@ export function createStageSim(
 
     // 4. Advance bullets (homing reads the shared target), cull off-field.
     system.update(dt, target.x, target.y);
+    // 4a. Steer homing player shots toward the nearest live enemy/boss BEFORE they
+    //     move (so the turned heading is what actually advances this tick). Built
+    //     fresh each tick from this tick's just-synced enemy positions (step 3b);
+    //     the boss point is included only while a phase is actually up and alive —
+    //     matches the gate `stepShotCollision` below uses for the boss itself.
+    homingTargets.length = 0;
+    for (const e of enemies.enemies) if (e.alive) homingTargets.push(e);
+    if (bossRoot && bossState.active && bossState.hp > 0 && player.state !== PlayerState.GameOver) {
+      homingTargets.push({ x: BOSS_ORIGIN_X, y: BOSS_ORIGIN_Y });
+    }
+    stepShotHoming(shots, homingTargets, dt);
     // 4b. Advance player shots, then resolve shot-vs-enemy and shot-vs-boss. Enemies
     //     first (popcorn in front): a shot spent on an enemy can't also hit the boss.
     //     HP (enemy + boss) falls only as shots actually land, so aim/position matters.
@@ -840,6 +859,7 @@ export function createStageSim(
       shage[k] = s.age;
       shdmg[k] = s.damage;
       shrad[k] = s.radius;
+      shhoming[k] = s.homing;
       k++;
     }
     // Compact live enemies in pool order (same rationale as bullet slots).
@@ -956,6 +976,7 @@ export function createStageSim(
       shage.subarray(0, k),
       shdmg.subarray(0, k),
       shrad.subarray(0, k),
+      shhoming.subarray(0, k),
       enx.subarray(0, q),
       eny.subarray(0, q),
       enhp.subarray(0, q),

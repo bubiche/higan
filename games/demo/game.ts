@@ -23,10 +23,12 @@ import { demoSprites } from "./sprites";
 import { demoPortraits } from "./portraits";
 import { demoBackgroundLayers, demoMenuBackgroundLayers } from "./background";
 
-// Two reference characters — authored content (a different game defines its own with
-// zero engine change). They differ in BOTH halves of the offense: the shot (how you
-// deal damage) and the bomb (the panic-clear). That contrast is the engine litmus —
-// a character swap must change the bomb, not just the shot.
+// Three reference characters — authored content (a different game defines its own
+// with zero engine change). Spread and Focus differ in BOTH halves of the offense:
+// the shot (how you deal damage) and the bomb (the panic-clear) — that contrast is
+// the engine litmus, a character swap must change the bomb, not just the shot.
+// Homing is the third shot idiom the engine's shot config supports: a tracking
+// stream mixed alongside the straight one.
 
 // ── Spread: the all-rounder. A pale needle that points along travel; focus
 // concentrates it into a tight column for single-target DPS on the boss, unfocus fans
@@ -65,6 +67,37 @@ const FOCUS_SHOT: ShotConfig = {
   focusSpreadFrac: 0.15,
 };
 
+// ── Homing: weak tracking amulets mixed with a thin center needle while unfocused
+// (breadth without much single-shot power); focus drops the amulets entirely and
+// switches the needle to a much stronger column via `focusDamage` — the "stronger
+// straight bullets when focused" contrast, on top of Spread/Focus's spread contrast.
+// Its bomb is the engine default (omitted below), like Spread's.
+const HOMING_SHOT: ShotConfig = {
+  fireInterval: 4,
+  speed: 600,
+  damage: 7,
+  focusDamage: 26,
+  radius: 5,
+  sprite: Shape.Kunai,
+  color: [1.0, 0.55, 0.75],
+  baseStreams: 1,
+  powerPerStream: 40,
+  maxStreams: 3,
+  spread: 0.05,
+  focusSpreadFrac: 0.6,
+  homing: {
+    fireInterval: 9,
+    streams: 2,
+    damage: 4,
+    speed: 380,
+    turnRate: 2.2,
+    radius: 5,
+    sprite: Shape.Ofuda,
+    color: [1.0, 0.85, 0.3],
+    spread: 0.55,
+  },
+};
+
 const FOCUS_BOMB: BombConfig = {
   bossDamage: 300, // a visible ~1/3-of-a-phase chunk off the boss bar (phases are 700–1100 HP)
   radius: 140, // clears around the player but not the field edges (field is 384×448)
@@ -88,12 +121,13 @@ export const demoGame = defineGame({
       background: { layers: demoBackgroundLayers },
     },
   ],
-  // Two characters: Spread (default defensive bomb — omitted, so it uses the engine
-  // default) and Focus (an explicit offensive bomb). Both share the run's player config;
-  // a different game would tune lives/speed per character too.
+  // Three characters: Spread and Homing share the default defensive bomb (omitted);
+  // Focus has an explicit offensive bomb. All share the run's player config; a
+  // different game would tune lives/speed per character too.
   characters: [
     { id: "Spread", config: DEFAULT_PLAYER_CONFIG, shot: SPREAD_SHOT, sprite: demoSprites.player, portrait: demoPortraits.heroine },
     { id: "Focus", config: DEFAULT_PLAYER_CONFIG, shot: FOCUS_SHOT, bomb: FOCUS_BOMB, sprite: demoSprites.player, portrait: demoPortraits.heroine },
+    { id: "Homing", config: DEFAULT_PLAYER_CONFIG, shot: HOMING_SHOT, sprite: demoSprites.player, portrait: demoPortraits.heroine },
   ],
   // Four difficulties, easiest-first — the chosen entry's INDEX is the rank the content
   // scales on (see `./difficulty`: Easy 0 … Lunatic 3, with NORMAL the unscaled anchor).

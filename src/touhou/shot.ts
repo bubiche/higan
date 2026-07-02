@@ -18,7 +18,7 @@
 
 import type { InputFrame } from "../core/input";
 import { PlayerState, type Player } from "./player";
-import { sin, cos } from "../core/trig";
+import { sin, cos, atan2 } from "../core/trig";
 
 /** A single player shot. Mutated in place inside its pool slot. */
 export interface Shot {
@@ -33,6 +33,9 @@ export interface Shot {
   damage: number;
   /** Collision + draw radius (sim state — sets the hit threshold). */
   radius: number;
+  /** Turn rate toward the nearest live enemy/boss, radians/second; 0 flies straight
+   *  (sim state — steers `vx`/`vy`, so it's in the hash like a bullet's behaviour bp). */
+  homing: number;
   /** Shape atlas layer — render-only (not hashed), like a laser's colour. */
   sprite: number;
   /** Linear RGB tint, 0..1 — render-only. */
@@ -49,6 +52,7 @@ export interface ShotSpawn {
   vy: number;
   damage: number;
   radius: number;
+  homing: number;
   sprite: number;
   r: number;
   g: number;
@@ -83,6 +87,36 @@ export interface ShotConfig {
   readonly spread: number;
   /** Focus narrows the fan to this fraction of `spread` — the concentrated shot. */
   readonly focusSpreadFrac: number;
+  /** Damage per shot while focused, if different from `damage` — lets focus be a
+   *  STRONGER stream, not just a narrower one. Omit to keep the same damage. */
+  readonly focusDamage?: number;
+  /** A second stream of tracking shots, fired only while UNFOCUSED (focus is the
+   *  concentrated straight stream). Omit for a character with no homing shot. */
+  readonly homing?: HomingShotConfig;
+}
+
+/** The tracking-shot stream a `ShotConfig` can mix in alongside its straight one. */
+export interface HomingShotConfig {
+  /** Ticks between homing volleys — independent of the straight stream's cadence
+   *  (amulets typically fire slower than needles). */
+  readonly fireInterval: number;
+  /** Amulets per volley. */
+  readonly streams: number;
+  /** Damage per amulet on hit. */
+  readonly damage: number;
+  /** Amulet speed, sim units / second, at launch. */
+  readonly speed: number;
+  /** Turn rate toward the nearest live enemy/boss, radians/second. A low rate gives
+   *  a lazy curve; a high rate snaps to aim. */
+  readonly turnRate: number;
+  /** Collision + draw radius, sim units. */
+  readonly radius: number;
+  /** Shape atlas layer for the (placeholder) sprite. */
+  readonly sprite: number;
+  /** Linear RGB tint. */
+  readonly color: readonly [number, number, number];
+  /** Half-arc the amulets launch into, off straight-up, radians. */
+  readonly spread: number;
 }
 
 /** Default shot; a game overrides per character. Tuned so a centred, focused
@@ -133,7 +167,7 @@ export interface ShotBounds {
 export function createShotSystem(bounds: ShotBounds, capacity = 256): ShotSystem {
   const pool: Shot[] = [];
   for (let i = 0; i < capacity; i++) {
-    pool.push({ alive: false, x: 0, y: 0, vx: 0, vy: 0, age: 0, damage: 0, radius: 0, sprite: 0, r: 0, g: 0, b: 0 });
+    pool.push({ alive: false, x: 0, y: 0, vx: 0, vy: 0, age: 0, damage: 0, radius: 0, homing: 0, sprite: 0, r: 0, g: 0, b: 0 });
   }
   let liveCount = 0;
   const { width, height, margin } = bounds;
@@ -154,6 +188,7 @@ export function createShotSystem(bounds: ShotBounds, capacity = 256): ShotSystem
         s.vy = o.vy;
         s.damage = o.damage;
         s.radius = o.radius;
+        s.homing = o.homing;
         s.sprite = o.sprite;
         s.r = o.r;
         s.g = o.g;
@@ -192,18 +227,21 @@ export function createShotSystem(bounds: ShotBounds, capacity = 256): ShotSystem
 }
 
 /**
- * Fire a volley this tick if `shoot` is held, the player can fire, and the tick is
- * on the cadence. ZERO randomness — deterministic cadence (`tick % fireInterval`)
+ * Fire this tick if `shoot` is held, the player can fire, and the tick is on a
+ * stream's cadence. ZERO randomness — deterministic cadence (`tick % fireInterval`)
  * and fixed angles, so firing never perturbs any pattern's RNG stream (§c).
  *
- * Streams scale with power (flat until items feed power); focus collapses the fan
- * to a narrow column (high single-target DPS), unfocus stays a wide spread. With a
- * narrow focus fan every shot lands on a centred boss, so focus out-damages unfocus
- * *emergently* — no separate focus-damage knob needed.
+ * The straight stream scales with power (flat until items feed power); focus
+ * collapses its fan to a narrow column (high single-target DPS) and may switch to
+ * `focusDamage` (a stronger, not just narrower, shot). `cfg.homing`, if present, is
+ * a SECOND stream fired only while unfocused — weak tracking amulets mixed in
+ * alongside the straight shots, gone the moment the player focuses down to the
+ * concentrated column (the classic "spread vs. needle" character split, plus
+ * tracking on the spread side).
  *
- * Returns whether a volley fired this tick (one per cadence tick, regardless of stream
- * count) so the caller can raise a single presentation event. The return is not read by
- * any hashed logic — firing stays a pure, zero-RNG function of (tick, input, power).
+ * Returns whether anything fired this tick (either stream) so the caller can raise
+ * a single presentation event. The return is not read by any hashed logic — firing
+ * stays a pure, zero-RNG function of (tick, input, power).
  */
 export function fireShots(
   system: ShotSystem,
@@ -214,32 +252,113 @@ export function fireShots(
 ): boolean {
   if (!input.shoot) return false;
   if (player.state !== PlayerState.Alive && player.state !== PlayerState.Respawning) return false;
-  if (tick % cfg.fireInterval !== 0) return false;
 
-  const streams = Math.min(cfg.maxStreams, cfg.baseStreams + Math.floor(player.power / cfg.powerPerStream));
-  const halfArc = (player.focused ? cfg.focusSpreadFrac : 1) * cfg.spread;
   const up = -Math.PI / 2; // straight up: the field is y-down, so up is -y
-  const r = cfg.color[0];
-  const g = cfg.color[1];
-  const b = cfg.color[2];
-  for (let i = 0; i < streams; i++) {
-    // Evenly fan across [up - halfArc, up + halfArc]; a single stream goes dead up.
-    const t = streams === 1 ? 0.5 : i / (streams - 1);
-    const a = up - halfArc + t * (2 * halfArc);
-    system.spawn({
-      x: player.x,
-      y: player.y,
-      vx: cos(a) * cfg.speed,
-      vy: sin(a) * cfg.speed,
-      damage: cfg.damage,
-      radius: cfg.radius,
-      sprite: cfg.sprite,
-      r,
-      g,
-      b,
-    });
+  let fired = false;
+
+  if (tick % cfg.fireInterval === 0) {
+    const streams = Math.min(cfg.maxStreams, cfg.baseStreams + Math.floor(player.power / cfg.powerPerStream));
+    const halfArc = (player.focused ? cfg.focusSpreadFrac : 1) * cfg.spread;
+    const damage = player.focused ? (cfg.focusDamage ?? cfg.damage) : cfg.damage;
+    const r = cfg.color[0];
+    const g = cfg.color[1];
+    const b = cfg.color[2];
+    for (let i = 0; i < streams; i++) {
+      // Evenly fan across [up - halfArc, up + halfArc]; a single stream goes dead up.
+      const t = streams === 1 ? 0.5 : i / (streams - 1);
+      const a = up - halfArc + t * (2 * halfArc);
+      system.spawn({
+        x: player.x,
+        y: player.y,
+        vx: cos(a) * cfg.speed,
+        vy: sin(a) * cfg.speed,
+        damage,
+        radius: cfg.radius,
+        homing: 0,
+        sprite: cfg.sprite,
+        r,
+        g,
+        b,
+      });
+    }
+    fired = true;
   }
-  return true;
+
+  const hc = cfg.homing;
+  if (hc && !player.focused && tick % hc.fireInterval === 0) {
+    const r = hc.color[0];
+    const g = hc.color[1];
+    const b = hc.color[2];
+    for (let i = 0; i < hc.streams; i++) {
+      const t = hc.streams === 1 ? 0.5 : i / (hc.streams - 1);
+      const a = up - hc.spread + t * (2 * hc.spread);
+      system.spawn({
+        x: player.x,
+        y: player.y,
+        vx: cos(a) * hc.speed,
+        vy: sin(a) * hc.speed,
+        damage: hc.damage,
+        radius: hc.radius,
+        homing: hc.turnRate,
+        sprite: hc.sprite,
+        r,
+        g,
+        b,
+      });
+    }
+    fired = true;
+  }
+
+  return fired;
+}
+
+/**
+ * Turn every live homing shot (`homing !== 0`) toward the nearest point in
+ * `targets`, at up to its stored turn rate this tick, keeping speed — mirrors the
+ * bullet system's `home` behaviour, but per-shot-nearest rather than a single shared
+ * target (shots are O(hundreds), so an O(shots × targets) scan is cheap; see the
+ * module header). Non-homing shots are untouched. Call BEFORE `system.update` so
+ * the turned heading is what actually moves this tick.
+ *
+ * Deterministic and ZERO randomness: nearest-target is a pure function of
+ * positions, ties broken by `targets` order (§c stays intact). An empty
+ * `targets` leaves every homing shot flying its current heading unchanged — the
+ * sane fallback once nothing is left to track.
+ */
+export function stepShotHoming(system: ShotSystem, targets: readonly { x: number; y: number }[], dt: number): void {
+  if (targets.length === 0) return;
+  const { shots } = system;
+  for (let i = 0; i < shots.length; i++) {
+    const s = shots[i];
+    if (!s.alive || s.homing === 0) continue;
+
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let j = 0; j < targets.length; j++) {
+      const t = targets[j]!;
+      const dx = t.x - s.x;
+      const dy = t.y - s.y;
+      const d = dx * dx + dy * dy;
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = j;
+      }
+    }
+    const target = targets[bestIdx]!;
+    const speed = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
+    const current = atan2(s.vy, s.vx);
+    const desired = atan2(target.y - s.y, target.x - s.x);
+    let diff = desired - current;
+    // Wrap the heading error into [-PI, PI] so it always turns the short way.
+    while (diff > Math.PI) diff -= 2 * Math.PI;
+    while (diff < -Math.PI) diff += 2 * Math.PI;
+    const maxTurn = s.homing * dt;
+    if (diff > maxTurn) diff = maxTurn;
+    else if (diff < -maxTurn) diff = -maxTurn;
+    const angle = current + diff;
+    s.vx = cos(angle) * speed;
+    s.vy = sin(angle) * speed;
+  }
 }
 
 /**

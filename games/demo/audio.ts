@@ -1,8 +1,8 @@
 // The reference game's audio manifest.
 //
 // Its SPECIFIC BGM tracks are game identity, so they live here (not in the engine),
-// composed from the engine's synth toolkit `bgmLoop` (docs/M7-PLAN.md §0.4: the engine
-// ships default SFX + the toolkit, never stock BGM). Each is a functional placeholder
+// composed from the engine's synth toolkit `bgmLoop` (the engine ships default SFX + the
+// toolkit, never stock BGM). Each is a functional placeholder
 // loop, distinct per screen. Swapping any one for a real file is a one-line change:
 //   source: { kind: "synth", gen: bgmLoop({...}) }
 //   →       { kind: "url", src: "/audio/boss.ogg", loopStart, loopEnd }

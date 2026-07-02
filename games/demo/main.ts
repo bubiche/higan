@@ -118,6 +118,31 @@ if (import.meta.env.DEV) {
       .padStart(8, "0")} over ${bombDet.ticks} ticks`,
   );
 
+  // Every window above runs the FIRST or SECOND character, so the homing shot stream
+  // (the THIRD character's distinguishing behaviour — tracking amulets mixed with a
+  // straight needle, nearest-target steering toward live enemies/boss) would otherwise
+  // be unhashed-untested. A short window toggling focus exercises both branches: unfocus
+  // (amulets + weak needle, the new steering math) and focus (amulets drop out, the
+  // needle switches to `focusDamage`) — under the continuous determinism net, same as
+  // the bomb path above.
+  const homingChar = demoGame.characters[2]!;
+  const homingScripted: InputFrame[] = [];
+  for (let i = 0; i < 1500; i++) {
+    homingScripted.push({
+      dx: (i >> 5) % 2 ? 1 : -1,
+      dy: (i >> 6) % 2 ? 1 : -1,
+      shoot: true,
+      focus: i % 100 < 50,
+      bomb: false,
+    });
+  }
+  const homingDet = assertDeterministic(stage, STAGE_SEED, homingScripted, DT, homingChar, NORMAL, demoGame.config);
+  console.info(
+    `[higan] homing-shot determinism OK (${homingChar.id}) — hash 0x${homingDet.hashA
+      .toString(16)
+      .padStart(8, "0")} over ${homingDet.ticks} ticks`,
+  );
+
   // Engine-seam self-test: the boss's danmaku stream is isolated from the play-dependent
   // enemy stream (F4). Distinct from the determinism guards above — those prove THIS
   // game's scene reproduces; this proves a structural engine property with its own
