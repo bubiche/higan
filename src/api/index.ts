@@ -56,14 +56,18 @@ export { DEFAULT_SHOT_CONFIG, type ShotConfig } from "../touhou/shot";
 export { DEFAULT_BOMB_CONFIG, type BombConfig } from "../touhou/bomb";
 
 // Audio authoring surface. `SfxId` is the sound vocabulary the sim emits against (an
-// author provides the SOUND for an id; the engine owns WHEN it plays). The loader-slot
-// types declare sound as data (`synth` now, `url` later — a one-line swap). `bgmLoop`
-// is the engine's synth toolkit for composing functional placeholder BGM with no audio
-// files. The engine ships a default sound per SfxId, but NO stock BGM — music is game
-// identity, so a game composes its own tracks (docs/M7-PLAN.md §0.4).
+// author provides the SOUND for an id; the engine owns WHEN it plays) — an engine-FIXED
+// vocabulary, so it stays an enum. BGM is the opposite: a game-OPEN library, so it's named
+// via `defineBgm` and referenced by TYPED HANDLE (the same idiom `defineSprites` uses for
+// game art) rather than a string id — a typo is a compile error, not silence. The
+// loader-slot types declare sound as data (`synth` now, `url` later — a one-line swap).
+// `bgmLoop` is the engine's synth toolkit for composing functional placeholder BGM with no
+// audio files. The engine ships a default sound per SfxId, but NO stock BGM — music is
+// game identity, so a game composes its own tracks (docs/M7-PLAN.md §0.4).
 export { SfxId } from "../core/events";
 export type { SfxEvent } from "../core/events";
-export type { SoundSource, SynthGen, BgmTrack, AudioManifest, AssetManifest } from "./audio";
+export { defineBgm } from "./audio";
+export type { SoundSource, SynthGen, BgmDef, BgmHandle, AudioManifest, AssetManifest } from "./audio";
 export { bgmLoop, type BgmSpec } from "../audio/synth";
 
 // Visual asset authoring surface — the loader-slot model for sprites (procedural stand-in

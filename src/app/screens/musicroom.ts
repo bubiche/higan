@@ -78,7 +78,7 @@ export function createMusicRoomScreen(shell: Shell): Screen {
       // pop() does NOT re-enter the revealed title screen, so its theme won't re-assert on
       // its own — restore it here (mirrors title.enter). The room is only reached from the
       // title, so returning there is the only exit.
-      shell.audio.playBgm(shell.def.assets?.audio?.shell?.title ?? null);
+      shell.audio.playBgm(shell.def.assets?.audio?.shell?.title?.id ?? null);
     },
     frame(): void {
       menu.handleEvents(input.takeEvents());

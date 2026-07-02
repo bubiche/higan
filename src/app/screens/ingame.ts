@@ -444,7 +444,7 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       // from `shell.def` so a hot-reload that adds/edits it takes effect. Omitted → the
       // screen leaves whatever's playing (a silent stage doesn't force silence).
       const music = shell.def.stages[STAGE_INDEX]?.music;
-      if (music) shell.audio.playBgm(sim.boss ? (music.boss ?? music.stage) : music.stage);
+      if (music) shell.audio.playBgm((sim.boss ? (music.boss ?? music.stage) : music.stage).id);
 
       // Transition only during live play — never while paused/stepping/scrubbing or
       // sitting at the end of a loaded replay, so the debugger can inspect an ended

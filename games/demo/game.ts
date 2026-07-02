@@ -18,7 +18,7 @@ import {
 } from "higan";
 import { DEMO_BOSS } from "./patterns/boss";
 import { demoStage } from "./patterns/stage";
-import { demoAudio } from "./audio";
+import { demoAudio, demoBgm } from "./audio";
 import { demoSprites } from "./sprites";
 import { demoPortraits } from "./portraits";
 import { demoBackgroundLayers } from "./background";
@@ -84,7 +84,7 @@ export const demoGame = defineGame({
       // a `demoPortraits` handle (NOT in `assets.sprites.library`) so it resolves to a DOM
       // cut-in image rather than an atlas layer.
       bossInfo: { name: "Azure Gatekeeper", portrait: demoPortraits.gatekeeper },
-      music: { stage: "stage1", boss: "boss1" },
+      music: { stage: demoBgm.stage1, boss: demoBgm.boss1 },
       background: { layers: demoBackgroundLayers },
     },
   ],

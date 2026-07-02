@@ -12,9 +12,9 @@
 //   2. Game-owned art is referenced by TYPED HANDLE, not a string id. `defineSprites`
 //      names a game's art once and returns handles you reference inline — so a typo is a
 //      compile error, not a silent blank sprite, and there is one place to organize it.
-//      (This is the deliberate improvement over the audio BGM `Record<string,…>` keys;
-//      the engine-owned, fixed vocabularies — bullet `Shape`s, `SfxId`s — stay enums,
-//      because those are engine-fixed sets, not game-open libraries.)
+//      (Game-owned BGM uses the identical `defineBgm` handle idiom, src/api/audio.ts; the
+//      engine-owned, fixed vocabularies — bullet `Shape`s, `SfxId`s — stay enums, because
+//      those are engine-fixed sets, not game-open libraries.)
 //
 // Presentation-only: nothing here enters the sim or the hash. A `procedural` drawer runs
 // entirely outside the sim (use `Math`/`Math.random` freely). Sprite-sheet animation is

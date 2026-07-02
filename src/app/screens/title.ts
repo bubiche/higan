@@ -38,7 +38,7 @@ export function createTitleScreen(shell: Shell): Screen {
       // Title/menu BGM (idempotent; `null` = fade to silence if the game names none).
       // Carries through character/difficulty select untouched, then the in-game screen
       // switches to the stage theme.
-      shell.audio.playBgm(def.assets?.audio?.shell?.title ?? null);
+      shell.audio.playBgm(def.assets?.audio?.shell?.title?.id ?? null);
       // Music room only if the game declares a BGM library — a silent game would open an
       // empty, dead-end room, so it doesn't get the entry.
       const hasBgm = Object.keys(def.assets?.audio?.bgm ?? {}).length > 0;

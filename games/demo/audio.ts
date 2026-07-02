@@ -12,13 +12,7 @@
 // zero-config soundscape a minimal game gets for free. Overriding one is just adding an
 // entry keyed by `SfxId`.
 
-import { bgmLoop, type AudioManifest, type BgmTrack, type SynthGen } from "higan";
-
-const track = (id: string, title: string, gen: SynthGen): BgmTrack => ({
-  id,
-  title,
-  source: { kind: "synth", gen },
-});
+import { bgmLoop, defineBgm, type AudioManifest } from "higan";
 
 // Distinct loops: calm title, mid-tempo stage, driving minor boss, resolving results.
 // Chords are semitone offsets from each track's root; the first offset is the bass note.
@@ -78,12 +72,16 @@ const resultsTheme = bgmLoop({
   ],
 });
 
+// Named once; referenced by handle everywhere else (StageDef.music, shell, and here) —
+// a typo (`demoBgm.stage2`) is a compile error, not silent silence.
+export const demoBgm = defineBgm({
+  title: { title: "Higan ~ Prologue", source: { kind: "synth", gen: titleTheme } },
+  stage1: { title: "Crimson Approach", source: { kind: "synth", gen: stageTheme } },
+  boss1: { title: "Scarlet Duel", source: { kind: "synth", gen: bossTheme } },
+  results: { title: "Afterglow", source: { kind: "synth", gen: resultsTheme } },
+});
+
 export const demoAudio: AudioManifest = {
-  bgm: {
-    title: track("title", "Higan ~ Prologue", titleTheme),
-    stage1: track("stage1", "Crimson Approach", stageTheme),
-    boss1: track("boss1", "Scarlet Duel", bossTheme),
-    results: track("results", "Afterglow", resultsTheme),
-  },
-  shell: { title: "title", results: "results" },
+  bgm: demoBgm,
+  shell: { title: demoBgm.title, results: demoBgm.results },
 };

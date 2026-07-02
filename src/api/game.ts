@@ -19,7 +19,7 @@ import type { RunConfig } from "./config";
 import type { PlayerConfig } from "../touhou/player";
 import type { ShotConfig } from "../touhou/shot";
 import type { BombConfig } from "../touhou/bomb";
-import type { AssetManifest } from "./audio";
+import type { AssetManifest, BgmHandle } from "./audio";
 import type { SpriteHandle, BackgroundLayer } from "./sprites";
 
 /**
@@ -60,11 +60,11 @@ export interface StageDef {
    *  Presentation-only, read by the shell — never by the sim (a sibling of `music`/
    *  `background`). Omit for a boss with no splash/nameplate/cut-in. */
   readonly bossInfo?: BossInfo;
-  /** BGM for the stage, as track ids into `assets.audio.bgm`: `stage` plays during the
-   *  stage, `boss` (if given) during a boss encounter. Presentation-only — the in-game
-   *  screen reads sim state and asserts the theme; the sim never sees this. Omit for a
-   *  silent stage. */
-  readonly music?: { readonly stage: string; readonly boss?: string };
+  /** BGM for the stage, as handles from `assets.audio.bgm` (a `defineBgm` result): `stage`
+   *  plays during the stage, `boss` (if given) during a boss encounter. Presentation-only —
+   *  the in-game screen reads sim state and asserts the theme; the sim never sees this.
+   *  Omit for a silent stage. */
+  readonly music?: { readonly stage: BgmHandle; readonly boss?: BgmHandle };
   /** The stage's parallax background: layers drawn full-field BEHIND the danmaku,
    *  back-to-front in array order. Each names a `SpriteHandle` (from `defineSprites`) —
    *  referenced HERE, not in `assets.sprites.library` (the background pass loads it at full
