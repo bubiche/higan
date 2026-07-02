@@ -97,3 +97,9 @@ export const demoBackgroundLayers = [
   { sprite: demoBackground.starfieldFar, scrollY: 12, opacity: 0.85 },
   { sprite: demoBackground.starfieldNear, scrollY: 38, opacity: 0.95 },
 ];
+
+/** The title/character-select/options menu background — a single, slower pass of the SAME
+ *  far starfield handle (no extra texture upload; the loader dedupes by handle identity).
+ *  Independent of any stage: handed to `GameDefinition.menuBackground.layers`, not a
+ *  `StageDef.background` (the title isn't stage 1). */
+export const demoMenuBackgroundLayers = [{ sprite: demoBackground.starfieldFar, scrollY: 6, opacity: 0.6 }];

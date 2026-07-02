@@ -1,10 +1,12 @@
 // Title screen.
 //
 // The flow's entry point: shows the game's title as a small menu (Start / Options).
-// Pure presentation — it draws nothing on the GL field (the shell clears it) and
-// reads only discrete key presses from the shared input source. Opening Options
-// pushes it on top; because each menu owns its own DOM element, the title menu
-// stays put beneath and is revealed again on back-out without being rebuilt.
+// Pure presentation — the only thing it draws on the GL field is the game's optional
+// `menuBackground` (the shell clears the field otherwise); it reads only discrete key
+// presses from the shared input source. Opening Options pushes it on top; because each
+// menu owns its own DOM element, the title menu stays put beneath and is revealed again
+// on back-out without being rebuilt — and because Options' own `render` is a no-op, this
+// screen's background keeps showing through underneath it too.
 
 import type { Screen, Shell } from "../screen";
 import { createMenu, type Menu } from "../menu";
@@ -17,6 +19,10 @@ import type { MenuItem } from "../menu";
 export function createTitleScreen(shell: Shell): Screen {
   const { overlay, input, def } = shell;
   let menu: Menu;
+  // Presentation clock (seconds) for the menu background's scroll — this screen's own,
+  // like the in-game screen's; freezes while Options is on top (this screen stops
+  // receiving `frame`), which pauses its scroll too.
+  let presentationClock = 0;
 
   // Start → character select, unless the game offers a single character, in which case
   // there's nothing to choose: skip straight to the difficulty step (which itself skips to
@@ -59,11 +65,16 @@ export function createTitleScreen(shell: Shell): Screen {
     exit(): void {
       menu.dispose();
     },
-    frame(): void {
+    frame(dtSeconds: number): void {
+      presentationClock += dtSeconds;
       menu.handleEvents(input.takeEvents());
     },
     render(): void {
-      // Field stays empty (cleared by the shell); the title is DOM.
+      // The game's menu background, if any; the menu itself is DOM, drawn over it. Reads
+      // `shell.def` FRESH (not the captured `def`), so a content hot-reload that swaps in
+      // new background handles keeps resolving while this screen sits on top — the same
+      // reason the in-game screen re-reads its stage background every frame.
+      shell.background.draw(shell.def.menuBackground?.layers ?? [], presentationClock);
     },
   };
 }

@@ -9,6 +9,13 @@
 // Reachable from the title and from the pause menu; because each menu owns its own
 // DOM element (see `menu.ts`), opening this over a paused menu and backing out
 // leaves the menu beneath intact.
+//
+// Deliberately draws nothing of its own on the GL field: it is always PUSHED over
+// something that already does — the title (menu background) or the pause menu (the
+// frozen in-game field) — and the router renders the whole stack bottom-to-top, so
+// whichever is beneath keeps showing through untouched. Drawing the menu background
+// here too would be redundant when opened from the title, and would wrongly paint
+// over the frozen gameplay when opened from pause.
 
 import type { Screen, Shell } from "../screen";
 import { createMenu, type Menu } from "../menu";

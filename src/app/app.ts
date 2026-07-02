@@ -28,10 +28,10 @@ import { createAudioEngine, createNullAudioEngine, type AudioEngine } from "../a
 import type { GameDefinition } from "../api/game";
 import type { BackgroundLayer } from "../api/sprites";
 
-/** Every background layer across all stages — what the background pass preloads (one texture
- *  per distinct handle, deduped inside `load`). */
+/** Every background layer across all stages PLUS the game-level menu background — what the
+ *  background pass preloads (one texture per distinct handle, deduped inside `load`). */
 function collectBackgroundLayers(def: GameDefinition): readonly BackgroundLayer[] {
-  return def.stages.flatMap((s) => s.background?.layers ?? []);
+  return [...def.stages.flatMap((s) => s.background?.layers ?? []), ...(def.menuBackground?.layers ?? [])];
 }
 
 export interface AppHandle {

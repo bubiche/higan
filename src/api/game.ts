@@ -133,6 +133,13 @@ export interface GameDefinition {
    *  none is silent-but-valid, and the headless/determinism paths never touch it (it is
    *  presentation, outside the sim). */
   readonly assets?: AssetManifest;
+  /** Game-level parallax scenery drawn behind the title / character-select / options
+   *  screens — independent of any `StageDef.background` (the title isn't stage 1). Reuses
+   *  the same `BackgroundLayer` vocabulary and renderer as stage backgrounds; each menu
+   *  screen scrolls it on its own presentation clock. Presentation-only — never read by the
+   *  sim, so it never touches a determinism baseline or the replay `configId`. Omit for a
+   *  bare menu. */
+  readonly menuBackground?: { readonly layers: readonly BackgroundLayer[] };
 }
 
 /**

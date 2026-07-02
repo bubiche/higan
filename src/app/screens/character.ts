@@ -37,6 +37,8 @@ export function createCharacterScreen(shell: Shell): Screen {
   const { overlay, input } = shell;
   const characters = shell.def.characters;
   let menu: Menu;
+  // This screen's own presentation clock for the menu background's scroll (mirrors title).
+  let presentationClock = 0;
 
   return {
     enter(): void {
@@ -58,11 +60,14 @@ export function createCharacterScreen(shell: Shell): Screen {
     exit(): void {
       menu.dispose();
     },
-    frame(): void {
+    frame(dtSeconds: number): void {
+      presentationClock += dtSeconds;
       menu.handleEvents(input.takeEvents());
     },
     render(): void {
-      // DOM-only; the field stays cleared by the shell.
+      // The game's menu background, if any (read fresh — see title.ts for why); the menu
+      // itself is DOM, drawn over it.
+      shell.background.draw(shell.def.menuBackground?.layers ?? [], presentationClock);
     },
   };
 }

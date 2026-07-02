@@ -21,7 +21,7 @@ import { demoStage } from "./patterns/stage";
 import { demoAudio, demoBgm } from "./audio";
 import { demoSprites } from "./sprites";
 import { demoPortraits } from "./portraits";
-import { demoBackgroundLayers } from "./background";
+import { demoBackgroundLayers, demoMenuBackgroundLayers } from "./background";
 
 // Two reference characters — authored content (a different game defines its own with
 // zero engine change). They differ in BOTH halves of the offense: the shot (how you
@@ -113,4 +113,7 @@ export const demoGame = defineGame({
   // the engine defaults (no override map). Outside the sim: adding this doesn't touch any
   // determinism baseline or the replay configId (which fingerprints only gameplay data).
   assets: { audio: demoAudio, sprites: { library: demoSprites } },
+  // Game-level scenery behind the title/character-select/options screens — independent of
+  // stage 1's own `background` (see ./background). Presentation-only, same as above.
+  menuBackground: { layers: demoMenuBackgroundLayers },
 });

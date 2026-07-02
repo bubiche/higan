@@ -9,6 +9,10 @@
 // single-entry `replace`, so it replaces the character screen and is itself replaced by
 // the in-game screen (or, on cancel, by the previous step — character-select when the game
 // has more than one character, else the title).
+//
+// Draws the game's `menuBackground` (if any) on its own presentation clock, same as title
+// and character-select — this screen sits in the same single-entry chain, so without its
+// own draw call the field would otherwise go dark for this one step.
 
 import type { Screen, Shell } from "../screen";
 import { createMenu, type Menu } from "../menu";
@@ -24,6 +28,9 @@ export function createSelectScreen(shell: Shell, character: number): Screen {
   // is the rank passed to the run.
   const difficulties = shell.def.difficulties ?? DEFAULT_DIFFICULTIES;
   let menu: Menu;
+  // This screen's own presentation clock for the menu background's scroll (mirrors title
+  // and character-select — the same field carries through the whole pre-game flow).
+  let presentationClock = 0;
 
   return {
     enter(): void {
@@ -59,11 +66,14 @@ export function createSelectScreen(shell: Shell, character: number): Screen {
     exit(): void {
       menu.dispose();
     },
-    frame(): void {
+    frame(dtSeconds: number): void {
+      presentationClock += dtSeconds;
       menu.handleEvents(input.takeEvents());
     },
     render(): void {
-      // DOM-only; the field stays cleared by the shell.
+      // The game's menu background, if any (read fresh — see title.ts for why); the menu
+      // itself is DOM, drawn over it.
+      shell.background.draw(shell.def.menuBackground?.layers ?? [], presentationClock);
     },
   };
 }
