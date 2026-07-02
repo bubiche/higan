@@ -150,4 +150,25 @@ export const demoGame = defineGame({
   // Game-level scenery behind the title/character-select/options screens — independent of
   // stage 1's own `background` (see ./background). Presentation-only, same as above.
   menuBackground: { layers: demoMenuBackgroundLayers },
+  // Staff-roll shown on the final-stage clear, before results. The screen frames these
+  // lines with the game title and a closing card; blanks are spacers. Presentation-only.
+  ending: {
+    lines: [
+      "A danmaku demo",
+      "built on the Higan engine",
+      "",
+      "Bullets, bosses, and stages",
+      "authored entirely in the game layer",
+      "",
+      "— Staff —",
+      "",
+      "Design & Programming",
+      "The Higan Project",
+      "",
+      "In the lineage of the",
+      "Touhou Project shooting games",
+      "",
+      "See you again",
+    ],
+  },
 });

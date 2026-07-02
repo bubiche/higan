@@ -12,6 +12,7 @@
 import type { Screen, Shell } from "../screen";
 import type { RunController } from "../run";
 import { createResultsScreen, type RunOutcome } from "./results";
+import { createEndingScreen } from "./ending";
 import { createPauseScreen } from "./pause";
 import { createDialogueScreen } from "./dialogue";
 import { createContinueScreen } from "./continue";
@@ -399,10 +400,22 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
         shell.router.replace(createInGameScreen(shell, run));
       });
     } else {
-      // Final stage cleared (or a standalone run): hand the final score to results, fading
-      // through black. (The ending/staff-roll screen lands on this path later.) The game-over
-      // path instead PUSHES the continue prompt (no fade — it keeps the frozen death moment).
-      shell.transition(() => shell.router.replace(createResultsScreen(shell, outcome, sim.player.score)));
+      // Final main-campaign stage cleared: roll the staff credits, then results — fading
+      // through black. Capture the score at the clear tick (the sim keeps stepping during the
+      // fade, so a read inside the callback could drift) and close it — with the run, for the
+      // hi-score write — over a thunk the ending calls to build results only when it hands off.
+      // The game-over path instead PUSHES the continue prompt (no fade — it keeps the frozen
+      // death moment).
+      //
+      // Today this branch is reached only by the main campaign's final clear, so it always
+      // rolls credits. A standalone single-stage run (one that starts at a chosen stage and
+      // never advances — with no next stage it lands here too) must NOT roll credits; when such
+      // runs exist, gate the staff-roll on "this run is the main campaign" and send a standalone
+      // clear straight to results.
+      const finalScore = sim.player.score;
+      shell.transition(() =>
+        shell.router.replace(createEndingScreen(shell, () => createResultsScreen(shell, outcome, finalScore, run))),
+      );
     }
   };
 

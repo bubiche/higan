@@ -146,6 +146,12 @@ export interface GameDefinition {
    *  sim, so it never touches a determinism baseline or the replay `configId`. Omit for a
    *  bare menu. */
   readonly menuBackground?: { readonly layers: readonly BackgroundLayer[] };
+  /** Staff-roll shown when the final main-campaign stage is cleared, before results. The
+   *  `lines` are the game's own credits (roles, names) scrolled bottom-to-top; the screen
+   *  frames them with the game title and a closing card, and a blank string is a spacer.
+   *  Purely presentation — a wall-clock scroll, never read by the sim, so it never touches a
+   *  determinism baseline or the replay `configId`. Omit for a bare title + closing card. */
+  readonly ending?: { readonly lines: readonly string[] };
 }
 
 /**

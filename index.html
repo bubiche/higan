@@ -36,6 +36,21 @@
       .menu-value { color: #cdd6ea; }
       .menu-hint { margin: 0; opacity: 0.7; }
       .menu-hint b { color: #cdd6ea; }
+      /* Ending staff-roll: a credits column scrolled bottom-to-top, clipped to the field
+         and drawn over the dimmed frozen playfield. The in-game screen's `.menu-screen`
+         backdrop is reused; the inner column is translated upward each frame in JS. */
+      .ending-roll { position: absolute; inset: 0; overflow: hidden; }
+      .ending-inner { position: absolute; left: 0; right: 0; display: flex;
+        flex-direction: column; align-items: center; gap: 8px;
+        padding: 0 24px; box-sizing: border-box; will-change: transform; }
+      .ending-inner h1 { margin: 0 0 18px; font-size: 30px; letter-spacing: 6px;
+        font-weight: 700; color: #e7edff; text-shadow: 0 0 24px #2a52d0; }
+      .ending-inner p { margin: 0; color: #aeb6c8; }
+      .ending-fin { margin-top: 22px; color: #cdd6ea; }
+      .ending-end { margin-top: 10px; font-size: 20px; letter-spacing: 8px;
+        color: #e7edff; text-shadow: 0 0 18px #2a52d0; }
+      .ending-skip { position: absolute; left: 0; right: 0; bottom: 14px;
+        text-align: center; }
       /* Side HUD + replay controls — built by the in-game screen into this panel. */
       #sidebar { width: 230px; display: flex; flex-direction: column; gap: 14px; }
       #hud { white-space: pre; text-shadow: 0 1px 2px #000; }
