@@ -1,6 +1,6 @@
 // Dialogue box — a data-authored VN-style overlay pushed over the in-game screen.
 //
-// This is the one determinism-sensitive M8 checkpoint (docs/M8-PLAN.md §1), but the freeze
+// This is the one determinism-sensitive piece of the presentation layer, but the freeze
 // mechanism itself is pure presentation: it works exactly like the pause menu (screen.ts) —
 // while this screen sits on top of the router stack, the in-game screen stops receiving
 // `frame`, so its driver never advances. No tick passes, nothing enters the hash or the input

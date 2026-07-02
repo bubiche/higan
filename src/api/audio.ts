@@ -7,11 +7,10 @@
 // The guiding idea: a `SoundSource` is a LOADER SLOT, not a sound. Today it holds a
 // procedural synth stand-in; later it holds a real file — swapping one for the other is
 // a one-line manifest edit (`kind: "synth"` → `kind: "url"`) with zero other change,
-// because the engine resolves either into the same `AudioBuffer`. See docs/M7-PLAN.md
-// §0.4 for the SFX/BGM split (engine ships default SFX + the synth toolkit; a game
-// composes its own BGM tracks) — and `defineBgm` below for the split's OTHER axis:
-// engine-fixed vocabularies (`SfxId`) stay an enum, game-open ones (BGM, like sprites)
-// are typed handles, not strings.
+// because the engine resolves either into the same `AudioBuffer`. The SFX/BGM split
+// (engine ships default SFX + the synth toolkit; a game composes its own BGM tracks) has
+// an OTHER axis, handled by `defineBgm` below: engine-fixed vocabularies (`SfxId`) stay an
+// enum, game-open ones (BGM, like sprites) are typed handles, not strings.
 
 import type { SfxId } from "../core/events";
 import type { SpriteManifest } from "./sprites";

@@ -1,6 +1,6 @@
 // The synth toolkit — the engine's default SFX and the reusable BGM loop-composer.
 //
-// This is ENGINE audio content (docs/M7-PLAN.md §0.4): the engine ships a default sound
+// This is ENGINE audio content: the engine ships a default sound
 // for every SfxId (so a zero-config game is fully audible) and a `bgmLoop` composer so a
 // game can author functional placeholder BGM with no audio files. It does NOT ship any
 // game-specific BGM track — a game composes its own tracks from `bgmLoop` (the demo does,
@@ -92,10 +92,10 @@ function sfx(durationSec: number, render: (ctx: OfflineAudioContext) => void): S
   return { durationSec, render };
 }
 
-// ── The engine's default SFX — one per SfxId (§0.4: engine owns these) ──────────────
+// ── The engine's default SFX — one per SfxId (engine owns these) ──────────────
 // Each is short, distinct, and cheap. A game overrides any id via the manifest's `sfx`
 // map; every id it omits uses the default here, so a game that authors zero SFX still
-// has the full set. Descriptions track docs/M7-PLAN.md §10.
+// has the full set.
 //
 // MIX (relative loudness): the RAPID-FIRE sounds — Shoot (every few ticks), Graze,
 // EnemyHit, ItemCollect — are kept deliberately quiet so a steady stream of them sits

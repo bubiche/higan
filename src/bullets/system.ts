@@ -20,6 +20,7 @@
 
 import { createBulletStore, MAX_BULLETS, type BulletStore } from "./store";
 import { applyStagedEdit, type StagedProgram } from "./staged";
+import { sin, cos, atan2 } from "../core/trig";
 
 // Per-bullet behaviour selectors interpreted by the update loop. A bullet's
 // "behaviour" is one of these ids plus up to two numeric params (bp0, bp1) — a
@@ -206,12 +207,12 @@ export function createBulletSystem(
           } else if (beh === Behavior.Ramp) {
             const sp = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]) + bp0[i] * dt;
             const an = angle[i] + bp1[i] * dt;
-            vx[i] = Math.cos(an) * sp;
-            vy[i] = Math.sin(an) * sp;
+            vx[i] = cos(an) * sp;
+            vy[i] = sin(an) * sp;
             angle[i] = an;
           } else if (beh === Behavior.Home) {
             const sp = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
-            const desired = Math.atan2(targetY - y[i], targetX - x[i]);
+            const desired = atan2(targetY - y[i], targetX - x[i]);
             let diff = desired - angle[i];
             // Wrap the heading error into [-PI, PI] so we always turn the short way.
             while (diff > Math.PI) diff -= 2 * Math.PI;
@@ -220,16 +221,16 @@ export function createBulletSystem(
             if (diff > maxTurn) diff = maxTurn;
             else if (diff < -maxTurn) diff = -maxTurn;
             const an = angle[i] + diff;
-            vx[i] = Math.cos(an) * sp;
-            vy[i] = Math.sin(an) * sp;
+            vx[i] = cos(an) * sp;
+            vy[i] = sin(an) * sp;
             angle[i] = an;
           } else if (beh === Behavior.Delay) {
             // Held at spawn with vx=vy=0. On the launch tick, fire at the stashed
             // speed (bp1) along the stored heading, then become a plain Linear
             // bullet so subsequent ticks take the fast path.
             if (age[i] >= bp0[i]) {
-              vx[i] = Math.cos(angle[i]) * bp1[i];
-              vy[i] = Math.sin(angle[i]) * bp1[i];
+              vx[i] = cos(angle[i]) * bp1[i];
+              vy[i] = sin(angle[i]) * bp1[i];
               behavior[i] = Behavior.Linear;
             }
           } else if (beh === Behavior.Wave) {
@@ -238,9 +239,9 @@ export function createBulletSystem(
             // so the cumulative offset telescopes to bp0*sin(bp1*age*dt) — a clean
             // ±bp0 snake. Two sins/frame, paid only over wave bullets.
             const t = age[i] * dt;
-            const dLat = bp0[i] * (Math.sin(bp1[i] * t) - Math.sin(bp1[i] * (t - dt)));
-            x[i] += -Math.sin(angle[i]) * dLat;
-            y[i] += Math.cos(angle[i]) * dLat;
+            const dLat = bp0[i] * (sin(bp1[i] * t) - sin(bp1[i] * (t - dt)));
+            x[i] += -sin(angle[i]) * dLat;
+            y[i] += cos(angle[i]) * dLat;
           } else if (beh === Behavior.Staged) {
             // Run a timeline (bullets/staged.ts): bp0 = program id, bp1 = segment.
             // Advance through every segment whose absolute start tick has arrived
@@ -257,12 +258,12 @@ export function createBulletSystem(
             if (m === Behavior.Ramp) {
               const sp = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]) + prog.motP0[seg] * dt;
               const an = angle[i] + prog.motP1[seg] * dt;
-              vx[i] = Math.cos(an) * sp;
-              vy[i] = Math.sin(an) * sp;
+              vx[i] = cos(an) * sp;
+              vy[i] = sin(an) * sp;
               angle[i] = an;
             } else if (m === Behavior.Home) {
               const sp = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
-              const desired = Math.atan2(targetY - y[i], targetX - x[i]);
+              const desired = atan2(targetY - y[i], targetX - x[i]);
               let diff = desired - angle[i];
               while (diff > Math.PI) diff -= 2 * Math.PI;
               while (diff < -Math.PI) diff += 2 * Math.PI;
@@ -270,8 +271,8 @@ export function createBulletSystem(
               if (diff > maxTurn) diff = maxTurn;
               else if (diff < -maxTurn) diff = -maxTurn;
               const an = angle[i] + diff;
-              vx[i] = Math.cos(an) * sp;
-              vy[i] = Math.sin(an) * sp;
+              vx[i] = cos(an) * sp;
+              vy[i] = sin(an) * sp;
               angle[i] = an;
             }
             // Fast-path reclaim: once on the final segment with linear motion the

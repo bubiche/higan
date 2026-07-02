@@ -18,6 +18,7 @@
 
 import type { InputFrame } from "../core/input";
 import { PlayerState, type Player } from "./player";
+import { sin, cos } from "../core/trig";
 
 /** A single player shot. Mutated in place inside its pool slot. */
 export interface Shot {
@@ -228,8 +229,8 @@ export function fireShots(
     system.spawn({
       x: player.x,
       y: player.y,
-      vx: Math.cos(a) * cfg.speed,
-      vy: Math.sin(a) * cfg.speed,
+      vx: cos(a) * cfg.speed,
+      vy: sin(a) * cfg.speed,
       damage: cfg.damage,
       radius: cfg.radius,
       sprite: cfg.sprite,

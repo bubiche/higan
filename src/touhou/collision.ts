@@ -17,6 +17,7 @@
 import { PlayerState, type Player, type PlayerConfig } from "./player";
 import type { BulletSystem } from "../bullets/system";
 import type { LaserSystem } from "./laser";
+import { sin, cos } from "../core/trig";
 
 /**
  * One collision pass: graze (a write) for every live bullet whose disc overlaps
@@ -86,8 +87,8 @@ export function stepCollision(
       const l = pool[i];
       if (!l.alive) continue;
       if (l.age < l.telegraph || l.age >= l.telegraph + l.duration) continue;
-      const dxs = Math.cos(l.angle);
-      const dys = Math.sin(l.angle);
+      const dxs = cos(l.angle);
+      const dys = sin(l.angle);
       const wx = px - l.x;
       const wy = py - l.y;
       // Project the player onto the beam, clamped to the segment [0, length].

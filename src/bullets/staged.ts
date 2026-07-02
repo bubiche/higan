@@ -19,6 +19,7 @@
 
 import { Behavior } from "./system";
 import type { BulletStore } from "./store";
+import { sin, cos, atan2 } from "../core/trig";
 
 // Entry-edit "kind" codes packed into the program. Speed and angle each have at most
 // one source per segment (validated in `normalizeStaged`); these say which.
@@ -260,9 +261,9 @@ export function applyStagedEdit(
 
   if (ak === ANGLE_SET) an = prog.editAngle[seg];
   else if (ak === ANGLE_ADD) an = an + prog.editAngle[seg];
-  else if (ak === ANGLE_AIM) an = Math.atan2(targetY - y[i], targetX - x[i]);
+  else if (ak === ANGLE_AIM) an = atan2(targetY - y[i], targetX - x[i]);
 
-  vx[i] = Math.cos(an) * sp;
-  vy[i] = Math.sin(an) * sp;
+  vx[i] = cos(an) * sp;
+  vy[i] = sin(an) * sp;
   angle[i] = an;
 }

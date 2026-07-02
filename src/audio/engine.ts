@@ -5,7 +5,7 @@
 // the sim AFTER a step and never enters `sim.step` or the hash, so `AudioContext`
 // wall-clock (`currentTime`) is fine (the sim-side wall-clock ban does not apply).
 //
-// Two buses, deliberately asymmetric (docs/M7-PLAN.md §1):
+// Two buses, deliberately asymmetric:
 //   - SFX: transient, event-driven. `play`/`playEvents` fire one-shot voices with stereo
 //     pan, a per-id throttle, and a polyphony cap.
 //   - BGM: a state, not an event. `playBgm(id)` is IDEMPOTENT and desired-track-driven:

@@ -23,6 +23,7 @@
 import type { BulletSystem } from "../bullets/system";
 import { Behavior } from "../bullets/system";
 import type { Rng } from "../core/prng";
+import { sin, cos, atan2 } from "../core/trig";
 import { Shape } from "../render/shapes";
 import type { LaserSystem } from "../touhou/laser";
 import type { BulletBehavior } from "./controllers";
@@ -223,9 +224,9 @@ function makeBulletGroup(system: BulletSystem, slots: number[], gens: number[]):
         // Skip a slot that was culled (dead) or recycled by another bullet (its
         // generation stamp moved) — that is exactly what makes this safe.
         if (alive[s] === 0 || gen[s] !== gens[k]) continue;
-        const a = Math.atan2(ty - y[s]!, tx - x[s]!);
-        vx[s] = Math.cos(a) * speed;
-        vy[s] = Math.sin(a) * speed;
+        const a = atan2(ty - y[s]!, tx - x[s]!);
+        vx[s] = cos(a) * speed;
+        vy[s] = sin(a) * speed;
         angle[s] = a;
         count++;
       }
@@ -253,11 +254,11 @@ function makeContext(deps: EmitterDeps, group: number, rng: Rng): EmitterContext
   ): number => {
     let bp0 = beh.bp0;
     let bp1 = beh.bp1;
-    let vx = Math.cos(angle) * speed;
-    let vy = Math.sin(angle) * speed;
+    let vx = cos(angle) * speed;
+    let vy = sin(angle) * speed;
     if (beh.behavior === Behavior.Accelerate) {
-      bp0 = Math.cos(angle) * beh.bp0;
-      bp1 = Math.sin(angle) * beh.bp0;
+      bp0 = cos(angle) * beh.bp0;
+      bp1 = sin(angle) * beh.bp0;
     } else if (beh.behavior === Behavior.Delay) {
       // Hold at the spawn point; stash the launch speed (bp1) for the system to
       // apply along `angle` once the delay elapses.
@@ -367,7 +368,7 @@ function makeContext(deps: EmitterDeps, group: number, rng: Rng): EmitterContext
     aimed(o) {
       const x = o.x ?? ctx.x;
       const y = o.y ?? ctx.y;
-      const aim = Math.atan2(target.y - y, target.x - x);
+      const aim = atan2(target.y - y, target.x - x);
       const count = o.count ?? 1;
       const radius = o.radius ?? DEFAULT_RADIUS;
       const color = o.color ?? WHITE;
