@@ -341,6 +341,14 @@ export function createStageSim(
     b: 1,
     radius: BOSS_HIT_RADIUS,
   };
+  // The single live boss position — the boss root's ctx.x/y and the running phase body
+  // both drive it (temporally exclusive, so no arbitration), and the body render, hit
+  // disc, homing, and hit-SFX all read it. Seeded to the origin by `startBoss` on each
+  // spawn. Deterministic-by-construction (the coroutines are pure of rngBoss/tick) and
+  // its effects are already hashed downstream (bullet spawn positions + the boss HP the
+  // hit disc drains), so it is deliberately NOT folded into the hash — which also keeps
+  // every stationary-boss baseline bit-identical. A moving-boss fixture is the proof.
+  const bossPos: Vec2 = { x: BOSS_ORIGIN_X, y: BOSS_ORIGIN_Y };
   let nextGroupId = 1;
   // The boss currently on the field (midboss or final), or null between encounters.
   // A stage may run several bosses in sequence; each spawn replaces this, and it is
@@ -356,7 +364,15 @@ export function createStageSim(
     rng: rngBoss,
     target,
     difficulty,
-    spawnChild: deps.spawnChild,
+    // The shared boss position — the root's ctx.x/y back it; a phase body shares it.
+    pos: bossPos,
+    // Spawn a phase body on the boss stream, at and SHARING bossPos, resuming next tick
+    // (the no-same-tick-re-entry rule). Because it shares bossPos, a body that moves
+    // itself moves the whole boss (body render + hit disc) and fires from the live point.
+    // Its own `sub`-children stay independent (they snapshot position at spawn).
+    spawnBody(script: EmitterScript, group: number) {
+      running.push(startEmitter(script, bossPos.x, bossPos.y, tick + 1, deps, rngBoss, group, bossPos));
+    },
     nextGroup: () => nextGroupId++,
     beginPhase(spec: PhaseSpec) {
       bossState.active = true;
@@ -721,6 +737,16 @@ export function createStageSim(
       e.age++;
     }
 
+    // 3c. Publish the boss's live position (bossPos — driven by the boss root between
+    //     phases and by the running phase body during one, both stepped just above) to
+    //     the render body. The hit disc + homing below read bossPos directly. For a
+    //     stationary boss bossPos never leaves the origin, so this is a no-op and the
+    //     baselines are untouched.
+    if (bossRoot) {
+      bossBody.x = bossPos.x;
+      bossBody.y = bossPos.y;
+    }
+
     // 4. Advance bullets (homing reads the shared target), cull off-field.
     system.update(dt, target.x, target.y);
     // 4a. Steer homing player shots toward the nearest live enemy/boss BEFORE they
@@ -731,7 +757,7 @@ export function createStageSim(
     homingTargets.length = 0;
     for (const e of enemies.enemies) if (e.alive) homingTargets.push(e);
     if (bossRoot && bossState.active && bossState.hp > 0 && player.state !== PlayerState.GameOver) {
-      homingTargets.push({ x: BOSS_ORIGIN_X, y: BOSS_ORIGIN_Y });
+      homingTargets.push({ x: bossPos.x, y: bossPos.y });
     }
     stepShotHoming(shots, homingTargets, dt);
     // 4b. Advance player shots, then resolve shot-vs-enemy and shot-vs-boss. Enemies
@@ -745,8 +771,11 @@ export function createStageSim(
     if (enemyHits > 0) emit(SfxId.EnemyHit, hitX, enemyHits, hitY);
     if (bossRoot && bossState.active && bossState.hp > 0 && player.state !== PlayerState.GameOver) {
       const dmg = stepShotCollision(shots, {
-        x: BOSS_ORIGIN_X,
-        y: BOSS_ORIGIN_Y,
+        x: bossPos.x,
+        y: bossPos.y,
+        // The hit disc stays BOSS_HIT_RADIUS — the small hittable core, deliberately
+        // decoupled from the (larger) body render radius, and unchanged so the baselines
+        // hold. Only the disc's CENTRE now tracks the moving boss.
         radius: BOSS_HIT_RADIUS,
       });
       if (dmg > 0) {
@@ -756,7 +785,7 @@ export function createStageSim(
         // popcorn. It fires most ticks of the fight, but the audio layer throttles the sound
         // per-id (so it's a shimmer, not a buzz) and the VFX spark is small/short. Zero RNG,
         // not hashed — it's the SAME presentation-after-the-step discipline as every other event.
-        emit(SfxId.EnemyHit, BOSS_ORIGIN_X, undefined, BOSS_ORIGIN_Y);
+        emit(SfxId.EnemyHit, bossPos.x, undefined, bossPos.y);
       }
     }
     // 4c. Enemy teardown — the deterministic death seam. An enemy dies on hp<=0

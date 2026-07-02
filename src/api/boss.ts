@@ -45,7 +45,16 @@ export interface BossDeps {
   readonly target: Readonly<Vec2>;
   /** The run's difficulty rank, surfaced to the boss as `ctx.difficulty`. */
   readonly difficulty: number;
-  spawnChild(script: EmitterScript, x: number, y: number, group: number, rng: Rng): void;
+  /** The sim's single boss position — the boss root's `ctx.x/y` read/write it, and a
+   *  phase body spawned via `spawnBody` shares it, so a moving boss's body, hit disc,
+   *  and danmaku all track one point. Seeded to the boss origin at spawn. */
+  readonly pos: Vec2;
+  /** Spawn a phase BODY on the boss stream at (and sharing) `pos`, in `group`, resuming
+   *  next tick — so if the body moves itself, `pos` (hence the body render + hit disc)
+   *  moves with it and its danmaku originates from the live boss position. Distinct from
+   *  the generic child spawn: only the phase body shares the boss position; the body's
+   *  own `sub`-children remain independent. */
+  spawnBody(script: EmitterScript, group: number): void;
   /** Allocate a fresh group id for the next phase's emitters. */
   nextGroup(): number;
   /** Activate a phase: publish name/hp/timer to the sim, reset capture tracking. */
@@ -72,8 +81,12 @@ export interface BossContext {
    *  = harder). Construction input the boss branches on to scale its own danmaku;
    *  not hashed (same rule as `EmitterContext.difficulty`). */
   readonly difficulty: number;
-  /** Boss position; children spawn here. (Static for the demo; a moving boss would
-   *  need children to track it — a documented extension, not built.) */
+  /** Boss position — the live point the body renders at, the hit disc + homing track,
+   *  and the current phase body fires from. Mutate it to move the boss: between phases
+   *  in the boss root (over the auto-cleared field) to reposition, or inside a phase
+   *  body to drift while firing (its danmaku originates from the moving point). Backed
+   *  by the sim's single boss position, shared with the running phase body — but NOT
+   *  with `sub`-spawned satellites, which snapshot it at spawn and don't follow. */
   x: number;
   y: number;
   /** The shared aim target (the player). */
@@ -93,15 +106,15 @@ export type BossScript = (b: BossContext) => Generator<number, void, unknown>;
 
 function* runPhase(
   deps: BossDeps,
-  ctx: BossContext,
   spec: PhaseSpec,
   body: EmitterScript,
 ): Generator<number, PhaseResult, unknown> {
   const group = deps.nextGroup();
   deps.beginPhase(spec);
-  // The phase body runs on the boss stream (deps.rng) — the protected danmaku
-  // stream the player's clear-speed can't perturb.
-  deps.spawnChild(body, ctx.x, ctx.y, group, deps.rng);
+  // The phase body runs on the boss stream (protected from the player's clear-speed) and
+  // SHARES the boss position — so if it moves itself, the boss body + hit disc move with
+  // it and its danmaku fires from the live position (a boss that moves while firing).
+  deps.spawnBody(body, group);
   // Poll once per tick. HP and the timer are evolved by the sim (it reads
   // input.shoot); here we only read them to decide the transition. Reading hp
   // BEFORE this tick's sim-side drain means a phase ends one tick after HP truly
@@ -120,7 +133,9 @@ function* runPhase(
   }
 }
 
-/** Begin running `script` at (x, y) as the scheduler's group-0 root. */
+/** Begin running `script` at (x, y) as the scheduler's group-0 root. The boss's x/y are
+ *  backed by the shared `deps.pos` (seeded here), so the root moves the boss by mutating
+ *  `ctx.x/y` and every consumer reads one point. */
 export function startBoss(
   script: BossScript,
   x: number,
@@ -128,6 +143,11 @@ export function startBoss(
   startTick: number,
   deps: BossDeps,
 ): RunningEmitter {
+  // Seed the shared boss position, then back the root's x/y with it (accessors), so the
+  // root and the running phase body drive the same point — no snap when a phase ends and
+  // the root resumes (they never run in the same tick, so one shared point is safe).
+  deps.pos.x = x;
+  deps.pos.y = y;
   const ctx: BossContext = {
     tick: 0,
     rng: deps.rng,
@@ -136,8 +156,24 @@ export function startBoss(
     y,
     target: deps.target,
     phase(spec, body) {
-      return runPhase(deps, ctx, spec, body);
+      return runPhase(deps, spec, body);
     },
   };
+  Object.defineProperty(ctx, "x", {
+    get: () => deps.pos.x,
+    set: (v: number) => {
+      deps.pos.x = v;
+    },
+    enumerable: true,
+    configurable: true,
+  });
+  Object.defineProperty(ctx, "y", {
+    get: () => deps.pos.y,
+    set: (v: number) => {
+      deps.pos.y = v;
+    },
+    enumerable: true,
+    configurable: true,
+  });
   return { ctx, gen: script(ctx), resumeTick: startTick, done: false, group: 0 };
 }

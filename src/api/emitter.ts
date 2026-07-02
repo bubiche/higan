@@ -235,7 +235,7 @@ function makeBulletGroup(system: BulletSystem, slots: number[], gens: number[]):
   };
 }
 
-function makeContext(deps: EmitterDeps, group: number, rng: Rng): EmitterContext {
+function makeContext(deps: EmitterDeps, group: number, rng: Rng, pos?: Vec2): EmitterContext {
   const { system, lasers, target } = deps;
 
   // Spawn one bullet from already-resolved primitives. Accelerate is the one
@@ -402,6 +402,31 @@ function makeContext(deps: EmitterDeps, group: number, rng: Rng): EmitterContext
       });
     },
   };
+  // Optional SHARED position: when `pos` is given, this emitter's x/y read and write
+  // that Vec2 instead of owning their own — so its `fire/ring/aimed` (which default to
+  // ctx.x/y) originate from, and its movement drives, the shared point. The one caller
+  // is a boss PHASE BODY, which shares the boss position so a boss that moves while
+  // firing has its danmaku track it (see the boss layer). Every other emitter (enemies,
+  // the stage root, `sub`-spawned satellites, the showcase) passes no `pos` and keeps
+  // its own x/y — unchanged behaviour.
+  if (pos) {
+    Object.defineProperty(ctx, "x", {
+      get: () => pos.x,
+      set: (v: number) => {
+        pos.x = v;
+      },
+      enumerable: true,
+      configurable: true,
+    });
+    Object.defineProperty(ctx, "y", {
+      get: () => pos.y,
+      set: (v: number) => {
+        pos.y = v;
+      },
+      enumerable: true,
+      configurable: true,
+    });
+  }
   return ctx;
 }
 
@@ -415,8 +440,11 @@ export function startEmitter(
   deps: EmitterDeps,
   rng: Rng,
   group = 0,
+  pos?: Vec2,
 ): RunningEmitter {
-  const ctx = makeContext(deps, group, rng);
+  const ctx = makeContext(deps, group, rng, pos);
+  // With a shared `pos` these writes seed it (the setter writes through); without one
+  // they set the emitter's own x/y. Either way the emitter starts at (x, y).
   ctx.x = x;
   ctx.y = y;
   return { ctx, gen: script(ctx), resumeTick: startTick, done: false, group };
