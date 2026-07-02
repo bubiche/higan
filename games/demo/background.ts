@@ -78,6 +78,53 @@ const starfieldNear: ImageSource = {
   },
 };
 
+/** Warm ember variant of the star scatter: motes tinted orange→gold instead of cool white,
+ *  for Stage 2's dusk sky. Same seamless-tiling wrap trick as `scatterStars`. */
+function scatterEmbers(
+  ctx: CanvasRenderingContext2D,
+  size: number,
+  count: number,
+  seed: number,
+  minR: number,
+  maxR: number,
+): void {
+  const rnd = mulberry32(seed);
+  for (let i = 0; i < count; i++) {
+    const x = rnd() * size;
+    const y = rnd() * size;
+    const r = minR + rnd() * (maxR - minR);
+    const warm = rnd();
+    const cr = 245 + Math.round(warm * 10);
+    const cg = 150 + Math.round(warm * 70);
+    const cb = 60 + Math.round(warm * 60);
+    const a = 0.45 + rnd() * 0.5;
+    for (let dx = -size; dx <= size; dx += size) {
+      for (let dy = -size; dy <= size; dy += size) {
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(${cr},${cg},${cb},${a})`;
+        ctx.arc(x + dx, y + dy, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+}
+
+/** Far dusk haze: many small dim embers — the slow, distant layer. */
+const emberDriftFar: ImageSource = {
+  kind: "procedural",
+  draw(ctx, size) {
+    scatterEmbers(ctx, size, 70, 0x2c1a, 0.6, 1.4);
+  },
+};
+
+/** Near embers: fewer, larger, brighter motes — the faster foreground layer. */
+const emberDriftNear: ImageSource = {
+  kind: "procedural",
+  draw(ctx, size) {
+    scatterEmbers(ctx, size, 22, 0x7f3d, 1.3, 2.8);
+  },
+};
+
 // example of a url source
 const tiles: ImageSource = {
   kind: "url",
@@ -89,6 +136,8 @@ const tiles: ImageSource = {
 export const demoBackground = defineSprites({
   starfieldFar: { source: starfieldFar },
   starfieldNear: { source: starfieldNear },
+  emberDriftFar: { source: emberDriftFar },
+  emberDriftNear: { source: emberDriftNear },
 });
 
 /** The stage's parallax layers, back-to-front: the slow far field under the faster near
@@ -96,6 +145,13 @@ export const demoBackground = defineSprites({
 export const demoBackgroundLayers = [
   { sprite: demoBackground.starfieldFar, scrollY: 12, opacity: 0.85 },
   { sprite: demoBackground.starfieldNear, scrollY: 38, opacity: 0.95 },
+];
+
+/** Stage 2's parallax layers — the warm ember drift, back-to-front, faster than Stage 1 so
+ *  the dusk sky feels closer. Handed to that stage's `StageDef.background.layers`. */
+export const demoStage2BackgroundLayers = [
+  { sprite: demoBackground.emberDriftFar, scrollY: 14, opacity: 0.8 },
+  { sprite: demoBackground.emberDriftNear, scrollY: 44, opacity: 0.95 },
 ];
 
 /** The title/character-select/options menu background — a single, slower pass of the SAME

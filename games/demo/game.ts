@@ -4,9 +4,11 @@
 // data handed to `defineGame`, importing only the public API and its own content.
 // The shell runs over this — nothing under `src/` knows it exists.
 //
-// For now it is a single stage (the demo boss) and one default character. The
-// engine's sim economy work (player shots, enemies, items, scoring, multiple
-// stages) expands what a stage and character carry; this grows with it.
+// It is a two-stage main campaign (each stage a self-contained folder under
+// `stages/` holding its scene script, boss, and midboss) with three characters.
+// A run chains the stages in order, handing score/lives/bombs/power across each
+// boundary; clearing the last stage rolls the ending. Adding a stage is adding a
+// folder + one entry in the `stages` array below — no engine change.
 
 import {
   defineGame,
@@ -18,10 +20,12 @@ import {
 } from "higan";
 import { DEMO_BOSS } from "./stages/stage1/boss";
 import { demoStage } from "./stages/stage1/stage";
+import { EMBER_BOSS } from "./stages/stage2/boss";
+import { emberStage } from "./stages/stage2/stage";
 import { demoAudio, demoBgm } from "./audio";
 import { demoSprites } from "./sprites";
 import { demoPortraits } from "./portraits";
-import { demoBackgroundLayers, demoMenuBackgroundLayers } from "./background";
+import { demoBackgroundLayers, demoStage2BackgroundLayers, demoMenuBackgroundLayers } from "./background";
 
 // Three reference characters — authored content (a different game defines its own
 // with zero engine change). Spread and Focus differ in BOTH halves of the offense:
@@ -119,6 +123,14 @@ export const demoGame = defineGame({
       bossInfo: { name: "Azure Gatekeeper", portrait: demoPortraits.gatekeeper },
       music: { stage: demoBgm.stage1, boss: demoBgm.boss1 },
       background: { layers: demoBackgroundLayers },
+    },
+    {
+      id: "stage-2",
+      script: emberStage,
+      boss: EMBER_BOSS,
+      bossInfo: { name: "Ember Songstress", portrait: demoPortraits.songstress },
+      music: { stage: demoBgm.stage2, boss: demoBgm.boss2 },
+      background: { layers: demoStage2BackgroundLayers },
     },
   ],
   // Three characters: Spread and Homing share the default defensive bomb (omitted);

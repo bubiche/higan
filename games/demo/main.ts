@@ -74,6 +74,20 @@ if (import.meta.env.DEV) {
       .padStart(8, "0")} over ${det.ticks} ticks`,
   );
 
+  // A reference game keeps EVERY campaign stage under the continuous net, not just the
+  // first — so Stage 2's scene (its own waves, midboss, boss, and the new ramp/wave
+  // behaviours it uses) is guarded too. The same scripted input serves: it need only run
+  // deterministically, not clear anything. The per-stage seed mixes in the stage index,
+  // exactly as the in-game screen derives it (`mixSeed(runSeed, stageIndex)`).
+  const stage2 = demoGame.stages[1]!;
+  const STAGE2_SEED = mixSeed(SEED, 1);
+  const det2 = assertDeterministic(stage2, STAGE2_SEED, scripted, DT, character, NORMAL, demoGame.config);
+  console.info(
+    `[higan] determinism OK (stage ${stage2.id}) — hash 0x${det2.hashA
+      .toString(16)
+      .padStart(8, "0")} over ${det2.ticks} ticks`,
+  );
+
   // The boss exercises linear/accelerate/home/curve/lasers but not wave, delay, or
   // ramp's speed-change leg — so a second guard runs the full showcase pattern set
   // (as a guard-only stage that subs every showcase emitter) to keep those update-loop
@@ -196,7 +210,12 @@ if (!previewMode && import.meta.hot) {
     wireContentHMR({
       app,
       getDef: (mod) => (mod as { demoGame: GameDefinition }).demoGame,
-      verify: (def) => assertDeterministic(def.stages[0]!, STAGE_SEED, scripted, DT, character, NORMAL, def.config),
+      verify: (def) => {
+        // Re-verify EVERY main-campaign stage on each hot-edit, so a nondeterminism slip in
+        // any stage's content trips before the swap commits — not just Stage 1's.
+        assertDeterministic(def.stages[0]!, STAGE_SEED, scripted, DT, character, NORMAL, def.config);
+        assertDeterministic(def.stages[1]!, mixSeed(SEED, 1), scripted, DT, character, NORMAL, def.config);
+      },
     }),
   );
 }

@@ -58,6 +58,36 @@ const bossTheme = bgmLoop({
   ],
 });
 
+// Stage 2 leans moodier (lower root, slower) than Stage 1's stage theme; its boss theme
+// swaps boss 1's sawtooth for a harder square timbre so the two encounters read distinct.
+const stage2Theme = bgmLoop({
+  bpm: 112,
+  root: 55, // G3
+  wave: "triangle",
+  introBars: 1,
+  gain: 0.5,
+  progression: [
+    [0, 3, 7], // Gm
+    [-2, 3, 5], // Eb
+    [5, 8, 12], // Cm
+    [2, 5, 9], // D
+  ],
+});
+
+const boss2Theme = bgmLoop({
+  bpm: 160,
+  root: 53, // F3
+  wave: "square",
+  introBars: 0, // straight into the loop — tension, no lead-in
+  gain: 0.4,
+  progression: [
+    [0, 3, 7], // Fm
+    [0, 3, 7], // Fm
+    [-2, 3, 5], // Db
+    [7, 10, 14], // C
+  ],
+});
+
 const resultsTheme = bgmLoop({
   bpm: 100,
   root: 60, // C4
@@ -78,6 +108,8 @@ export const demoBgm = defineBgm({
   title: { title: "Higan ~ Prologue", source: { kind: "synth", gen: titleTheme } },
   stage1: { title: "Crimson Approach", source: { kind: "synth", gen: stageTheme } },
   boss1: { title: "Scarlet Duel", source: { kind: "synth", gen: bossTheme } },
+  stage2: { title: "Emberfall Dusk", source: { kind: "synth", gen: stage2Theme } },
+  boss2: { title: "The Songstress's Verse", source: { kind: "synth", gen: boss2Theme } },
   results: { title: "Afterglow", source: { kind: "synth", gen: resultsTheme } },
 });
 
