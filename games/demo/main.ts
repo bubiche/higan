@@ -88,6 +88,22 @@ if (import.meta.env.DEV) {
       .padStart(8, "0")} over ${det2.ticks} ticks`,
   );
 
+  // Stage 3 (the final stage) joins the continuous net too — its own waves, its two-phase
+  // midboss, and the MOVING Nocturne Sovereign (which uses `delay` and glides between phases,
+  // branches the earlier stages don't). The 8000-tick window times phases out rather than
+  // capturing (the weave doesn't centre on the boss), but it reaches through the prelude, the
+  // `delay` meteor curtain, and the `ramp` gravity-well — enough to guard the novel branches;
+  // the run-twice hash covers the whole window regardless of how far into the scene it gets.
+  // (Boot/HMR now run three full-scene legs; revisit if the chain grows much longer.)
+  const stage3 = demoGame.stages[2]!;
+  const STAGE3_SEED = mixSeed(SEED, 2);
+  const det3 = assertDeterministic(stage3, STAGE3_SEED, scripted, DT, character, NORMAL, demoGame.config);
+  console.info(
+    `[higan] determinism OK (stage ${stage3.id}) — hash 0x${det3.hashA
+      .toString(16)
+      .padStart(8, "0")} over ${det3.ticks} ticks`,
+  );
+
   // The boss exercises linear/accelerate/home/curve/lasers but not wave, delay, or
   // ramp's speed-change leg — so a second guard runs the full showcase pattern set
   // (as a guard-only stage that subs every showcase emitter) to keep those update-loop
@@ -215,6 +231,7 @@ if (!previewMode && import.meta.hot) {
         // any stage's content trips before the swap commits — not just Stage 1's.
         assertDeterministic(def.stages[0]!, STAGE_SEED, scripted, DT, character, NORMAL, def.config);
         assertDeterministic(def.stages[1]!, mixSeed(SEED, 1), scripted, DT, character, NORMAL, def.config);
+        assertDeterministic(def.stages[2]!, mixSeed(SEED, 2), scripted, DT, character, NORMAL, def.config);
       },
     }),
   );

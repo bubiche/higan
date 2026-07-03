@@ -151,6 +151,53 @@ const songstressBody: ImageSource = {
   },
 };
 
+/** The stage-3 boss: the Nocturne Sovereign — a regal gowned figure with a swept veil
+ *  behind and a small three-point star crown, so a tall imperious silhouette reads at the
+ *  boss origin, distinct from the gatekeeper's halo and the songstress's plumes (static).
+ *  Drawn white; the encounter's tint colours it. */
+const sovereignBody: ImageSource = {
+  kind: "procedural",
+  draw(ctx, size) {
+    const c = size / 2;
+    const R = size * 0.42;
+    // A wide veil/cloak sweeping behind the shoulders (a broad arc).
+    ctx.fillStyle = "rgba(255,255,255,0.4)";
+    ctx.beginPath();
+    ctx.moveTo(c - R * 0.2, c - R * 0.2);
+    ctx.quadraticCurveTo(c - R * 1.25, c + R * 0.2, c - R * 0.85, c + R);
+    ctx.lineTo(c + R * 0.85, c + R);
+    ctx.quadraticCurveTo(c + R * 1.25, c + R * 0.2, c + R * 0.2, c - R * 0.2);
+    ctx.closePath();
+    ctx.fill();
+    // Gown: a narrow waist flaring to a wide hem.
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.beginPath();
+    ctx.moveTo(c - R * 0.16, c - R * 0.3);
+    ctx.quadraticCurveTo(c - R * 0.6, c + R, c - R * 0.5, c + R);
+    ctx.lineTo(c + R * 0.5, c + R);
+    ctx.quadraticCurveTo(c + R * 0.6, c + R, c + R * 0.16, c - R * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    // Head.
+    ctx.beginPath();
+    ctx.arc(c, c - R * 0.5, R * 0.24, 0, Math.PI * 2);
+    ctx.fill();
+    // A three-point star crown above the head.
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    for (const dx of [-1, 0, 1]) {
+      const h = dx === 0 ? R * 0.34 : R * 0.24;
+      const px = c + dx * R * 0.24;
+      ctx.beginPath();
+      ctx.moveTo(px, c - R * 0.72);
+      ctx.lineTo(px - R * 0.08, c - R * 0.72 - h * 0.55);
+      ctx.lineTo(px, c - R * 0.72 - h);
+      ctx.lineTo(px + R * 0.08, c - R * 0.72 - h * 0.55);
+      ctx.closePath();
+      ctx.fill();
+    }
+  },
+};
+
 /** A shared midboss familiar: a crystalline core with two small wings — a lesser foe than
  *  the stage bosses, reused across stages with a different per-encounter tint (the white +
  *  tint idiom in action). Static. */
@@ -223,5 +270,6 @@ export const demoSprites = defineSprites({
   // a different tint each time.
   gatekeeperBody: { source: gatekeeperBody }, // stage-1 final boss
   songstressBody: { source: songstressBody }, // stage-2 final boss
-  midbossBody: { source: midbossBody }, // both midbosses (tinted per stage)
+  sovereignBody: { source: sovereignBody }, // stage-3 final boss
+  midbossBody: { source: midbossBody }, // all three midbosses (tinted per stage)
 });

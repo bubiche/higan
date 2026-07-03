@@ -125,6 +125,55 @@ const emberDriftNear: ImageSource = {
   },
 };
 
+/** Astral variant of the star scatter: cool indigo→silver motes, larger and brighter than
+ *  Stage 1's distant white field, for Stage 3's starlit-night sky. Same seamless-tiling wrap
+ *  trick as `scatterStars`. */
+function scatterAstral(
+  ctx: CanvasRenderingContext2D,
+  size: number,
+  count: number,
+  seed: number,
+  minR: number,
+  maxR: number,
+): void {
+  const rnd = mulberry32(seed);
+  for (let i = 0; i < count; i++) {
+    const x = rnd() * size;
+    const y = rnd() * size;
+    const r = minR + rnd() * (maxR - minR);
+    // Cool tint sweeping indigo→silver per star.
+    const cool = rnd();
+    const cr = 150 + Math.round(cool * 90);
+    const cg = 160 + Math.round(cool * 80);
+    const cb = 235 + Math.round((1 - cool) * 20);
+    const a = 0.5 + rnd() * 0.5;
+    for (let dx = -size; dx <= size; dx += size) {
+      for (let dy = -size; dy <= size; dy += size) {
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(${cr},${cg},${cb},${a})`;
+        ctx.arc(x + dx, y + dy, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+}
+
+/** Far astral haze: many small dim indigo motes — the slow, distant layer. */
+const astralFar: ImageSource = {
+  kind: "procedural",
+  draw(ctx, size) {
+    scatterAstral(ctx, size, 100, 0x3b6d, 0.6, 1.3);
+  },
+};
+
+/** Near astral field: fewer, larger, brighter silver stars — the faster foreground layer. */
+const astralNear: ImageSource = {
+  kind: "procedural",
+  draw(ctx, size) {
+    scatterAstral(ctx, size, 30, 0xc41f, 1.3, 2.8);
+  },
+};
+
 // example of a url source
 const tiles: ImageSource = {
   kind: "url",
@@ -138,6 +187,8 @@ export const demoBackground = defineSprites({
   starfieldNear: { source: starfieldNear },
   emberDriftFar: { source: emberDriftFar },
   emberDriftNear: { source: emberDriftNear },
+  astralFar: { source: astralFar },
+  astralNear: { source: astralNear },
 });
 
 /** The stage's parallax layers, back-to-front: the slow far field under the faster near
@@ -152,6 +203,14 @@ export const demoBackgroundLayers = [
 export const demoStage2BackgroundLayers = [
   { sprite: demoBackground.emberDriftFar, scrollY: 14, opacity: 0.8 },
   { sprite: demoBackground.emberDriftNear, scrollY: 44, opacity: 0.95 },
+];
+
+/** Stage 3's parallax layers — the cool astral starfield, back-to-front. The slowest far
+ *  drift of the three stages (a deep, still night) under a brighter near field. Handed to
+ *  that stage's `StageDef.background.layers`. */
+export const demoStage3BackgroundLayers = [
+  { sprite: demoBackground.astralFar, scrollY: 9, opacity: 0.85 },
+  { sprite: demoBackground.astralNear, scrollY: 30, opacity: 0.95 },
 ];
 
 /** The title/character-select/options menu background — a single, slower pass of the SAME

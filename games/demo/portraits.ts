@@ -166,6 +166,80 @@ const songstress: ImageSource = {
   },
 };
 
+/** Stage 3's boss: the Nocturne Sovereign — a cool indigo/silver figure with a swept veil
+ *  and a small three-point star crown instead of a hat, so her silhouette reads distinct from
+ *  the Gatekeeper's brim and the Songstress's flame crest. The regal finale look. */
+const nocturne: ImageSource = {
+  kind: "procedural",
+  draw(ctx, size) {
+    const c = size / 2;
+    // Gown/torso (rises from the bottom edge), deep indigo.
+    ctx.fillStyle = "rgba(70,64,150,0.96)";
+    ctx.beginPath();
+    ctx.moveTo(c - size * 0.32, size);
+    ctx.quadraticCurveTo(c - size * 0.36, size * 0.58, c - size * 0.14, size * 0.5);
+    ctx.lineTo(c + size * 0.14, size * 0.5);
+    ctx.quadraticCurveTo(c + size * 0.36, size * 0.58, c + size * 0.32, size);
+    ctx.closePath();
+    ctx.fill();
+    // A pale veil sweeping behind the shoulders (silver, low alpha).
+    ctx.fillStyle = "rgba(190,200,240,0.6)";
+    ctx.beginPath();
+    ctx.moveTo(c, size * 0.52);
+    ctx.quadraticCurveTo(c - size * 0.42, size * 0.66, c - size * 0.34, size);
+    ctx.lineTo(c - size * 0.2, size);
+    ctx.quadraticCurveTo(c - size * 0.16, size * 0.66, c, size * 0.56);
+    ctx.quadraticCurveTo(c + size * 0.16, size * 0.66, c + size * 0.2, size);
+    ctx.lineTo(c + size * 0.34, size);
+    ctx.quadraticCurveTo(c + size * 0.42, size * 0.66, c, size * 0.52);
+    ctx.closePath();
+    ctx.fill();
+    // Sash accent (starlit cyan).
+    ctx.fillStyle = "rgba(150,220,255,0.9)";
+    ctx.beginPath();
+    ctx.moveTo(c, size * 0.5);
+    ctx.lineTo(c - size * 0.14, size * 0.7);
+    ctx.lineTo(c + size * 0.14, size * 0.7);
+    ctx.closePath();
+    ctx.fill();
+    // Long hair framing the face (cool silver-violet).
+    ctx.fillStyle = "rgba(150,150,210,0.98)";
+    ctx.beginPath();
+    ctx.arc(c, size * 0.4, size * 0.16, Math.PI * 0.8, Math.PI * 2.2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(c - size * 0.15, size * 0.55, size * 0.05, size * 0.18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(c + size * 0.15, size * 0.55, size * 0.05, size * 0.18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Face.
+    ctx.fillStyle = "rgba(240,238,250,0.98)";
+    ctx.beginPath();
+    ctx.arc(c, size * 0.4, size * 0.13, 0, Math.PI * 2);
+    ctx.fill();
+    // Three-point star crown above the head.
+    ctx.fillStyle = "rgba(210,225,255,0.98)";
+    for (const [dx, h] of [[-0.07, 0.09], [0, 0.13], [0.07, 0.09]] as const) {
+      const px = c + dx * size;
+      ctx.beginPath();
+      ctx.moveTo(px, size * 0.26);
+      ctx.lineTo(px - size * 0.025, size * (0.26 - h * 0.5));
+      ctx.lineTo(px, size * (0.26 - h));
+      ctx.lineTo(px + size * 0.025, size * (0.26 - h * 0.5));
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Glowing cool eyes.
+    ctx.fillStyle = "rgba(150,225,255,1)";
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(c + s * size * 0.05, size * 0.41, size * 0.02, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  },
+};
+
 /**
  * The game's cut-in portraits. Referenced from `stage.bossInfo.portrait` and
  * `character.portrait` — NOT from `assets.sprites.library`, so they resolve to DOM images
@@ -174,5 +248,6 @@ const songstress: ImageSource = {
 export const demoPortraits = defineSprites({
   gatekeeper: { source: gatekeeper },
   songstress: { source: songstress },
+  nocturne: { source: nocturne },
   heroine: { source: heroine },
 });

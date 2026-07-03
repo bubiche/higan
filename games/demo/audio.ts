@@ -88,6 +88,37 @@ const boss2Theme = bgmLoop({
   ],
 });
 
+// Stage 3 goes grand and solemn — the lowest, statliest root of the three stage themes (a
+// deep, still starlit night). Its boss theme is the campaign's fastest and most driving, a
+// sawtooth finale distinct from boss 1's duel and boss 2's square verse.
+const stage3Theme = bgmLoop({
+  bpm: 108,
+  root: 50, // D3
+  wave: "triangle",
+  introBars: 1,
+  gain: 0.5,
+  progression: [
+    [0, 3, 7], // Dm
+    [5, 8, 12], // Gm
+    [-2, 2, 5], // C
+    [3, 7, 10], // F
+  ],
+});
+
+const boss3Theme = bgmLoop({
+  bpm: 168,
+  root: 50, // D3
+  wave: "sawtooth",
+  introBars: 0, // straight into the loop — the climax, no lead-in
+  gain: 0.4,
+  progression: [
+    [0, 3, 7], // Dm
+    [0, 3, 7], // Dm
+    [5, 8, 12], // Gm
+    [7, 11, 14], // A
+  ],
+});
+
 const resultsTheme = bgmLoop({
   bpm: 100,
   root: 60, // C4
@@ -110,6 +141,8 @@ export const demoBgm = defineBgm({
   boss1: { title: "Scarlet Duel", source: { kind: "synth", gen: bossTheme } },
   stage2: { title: "Emberfall Dusk", source: { kind: "synth", gen: stage2Theme } },
   boss2: { title: "The Songstress's Verse", source: { kind: "synth", gen: boss2Theme } },
+  stage3: { title: "Starlit Ascent", source: { kind: "synth", gen: stage3Theme } },
+  boss3: { title: "Sovereign of the Long Night", source: { kind: "synth", gen: boss3Theme } },
   results: { title: "Afterglow", source: { kind: "synth", gen: resultsTheme } },
 });
 

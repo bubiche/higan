@@ -4,7 +4,7 @@
 // data handed to `defineGame`, importing only the public API and its own content.
 // The shell runs over this — nothing under `src/` knows it exists.
 //
-// It is a two-stage main campaign (each stage a self-contained folder under
+// It is a three-stage main campaign (each stage a self-contained folder under
 // `stages/` holding its scene script, boss, and midboss) with three characters.
 // A run chains the stages in order, handing score/lives/bombs/power across each
 // boundary; clearing the last stage rolls the ending. Adding a stage is adding a
@@ -22,10 +22,17 @@ import { DEMO_BOSS } from "./stages/stage1/boss";
 import { demoStage } from "./stages/stage1/stage";
 import { EMBER_BOSS } from "./stages/stage2/boss";
 import { emberStage } from "./stages/stage2/stage";
+import { NOCTURNE_BOSS } from "./stages/stage3/boss";
+import { nocturneStage } from "./stages/stage3/stage";
 import { demoAudio, demoBgm } from "./audio";
 import { demoSprites } from "./sprites";
 import { demoPortraits } from "./portraits";
-import { demoBackgroundLayers, demoStage2BackgroundLayers, demoMenuBackgroundLayers } from "./background";
+import {
+  demoBackgroundLayers,
+  demoStage2BackgroundLayers,
+  demoStage3BackgroundLayers,
+  demoMenuBackgroundLayers,
+} from "./background";
 
 // Three reference characters — authored content (a different game defines its own
 // with zero engine change). Spread and Focus differ in BOTH halves of the offense:
@@ -131,6 +138,14 @@ export const demoGame = defineGame({
       bossInfo: { name: "Ember Songstress", portrait: demoPortraits.songstress },
       music: { stage: demoBgm.stage2, boss: demoBgm.boss2 },
       background: { layers: demoStage2BackgroundLayers },
+    },
+    {
+      id: "stage-3",
+      script: nocturneStage,
+      boss: NOCTURNE_BOSS,
+      bossInfo: { name: "Nocturne Sovereign", portrait: demoPortraits.nocturne },
+      music: { stage: demoBgm.stage3, boss: demoBgm.boss3 },
+      background: { layers: demoStage3BackgroundLayers },
     },
   ],
   // Three characters: Spread and Homing share the default defensive bomb (omitted);

@@ -113,7 +113,7 @@ const PRE_BOSS_DIALOGUE: Dialogue = [
 
 const POST_BOSS_DIALOGUE: Dialogue = [
   { name: "Ember Songstress", portrait: demoPortraits.songstress, side: "right", text: "...The last ember dims. You heard me out after all." },
-  { text: "The dusk settles into quiet. The journey reaches its end." }, // unattributed narrator line
+  { text: "The dusk gives way to a colder dark. One last ascent remains." }, // unattributed narrator line
 ];
 
 /** Stage 2: opening waves → midboss → more waves → final boss. Same structure as Stage 1;
