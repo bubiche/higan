@@ -13,6 +13,7 @@
 import type { Screen, Shell } from "../screen";
 import type { RunController } from "../run";
 import { DEFAULT_DIFFICULTIES } from "../../api/game";
+import { evaluateExtraUnlock } from "../../api/config";
 import { recordHiScore } from "../save";
 import { SfxId } from "../../core/events";
 import { createTitleScreen } from "./title";
@@ -59,6 +60,26 @@ export function createResultsScreen(
           (shell.def.difficulties ?? DEFAULT_DIFFICULTIES)[run!.difficulty]!.id,
           score!,
         );
+        // The Extra-stage unlock — the other durable run-end projection. Evaluate the game's
+        // unlock policy against this run's outcome facts and set the flag if it passes
+        // (idempotent: `= true` can't "re-unlock", so re-clearing is a no-op). Presentation/
+        // meta like the hi-score, never hashed.
+        //
+        // DEFERRED GATE (owned by the Extra/practice work, not built now): today every clear
+        // that reaches results with a run IS the final MAIN-campaign clear — a non-final clear
+        // advances instead of ending, and game-over carries no run. Once standalone single-stage
+        // runs exist (Extra, practice), a practice/Extra clear also lands here, and under
+        // "any-clear" would WRONGLY flip the unlock. When such runs exist, gate this on "the run
+        // is the main campaign", exactly like the staff-roll gate in the in-game screen.
+        if (
+          evaluateExtraUnlock(shell.def.config.extraUnlock, {
+            cleared: true,
+            continuesUsed: run!.continuesUsed,
+            difficulty: run!.difficulty,
+          })
+        ) {
+          shell.save.unlocks.extra = true;
+        }
         shell.persist();
       }
       const recordLine = isRecord ? `<p class="menu-hint"><b>New record!</b></p>` : "";

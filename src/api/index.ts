@@ -47,7 +47,10 @@ export {
 
 export {
   DEFAULT_RUN_CONFIG,
+  evaluateExtraUnlock,
   type RunConfig,
+  type ExtraUnlockPolicy,
+  type ExtraUnlockFacts,
   type ScoringConfig,
   type ItemConfig,
 } from "./config";
