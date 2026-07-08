@@ -36,6 +36,36 @@
       .menu-value { color: #cdd6ea; }
       .menu-hint { margin: 0; opacity: 0.7; }
       .menu-hint b { color: #cdd6ea; }
+      /* Character-select: a name list beside a portrait/info pane (reuses .menu-screen's
+         dimmed backdrop and .menu-hint footer). The pane is accented per shot type via a
+         --accent CSS var the screen sets from the character's shot colour. */
+      .char-card { text-align: center; }
+      .char-card h1 { margin: 0 0 14px; font-size: 34px; letter-spacing: 6px;
+        font-weight: 700; color: #e7edff; text-shadow: 0 0 24px #2a52d0; }
+      /* Sized to fit the field even at the 1.0× minimum display scale (a 384px-wide
+         overlay): list(110) + gap(16) + pane(150+24+2) ≈ 302px, comfortably inside. */
+      .char-body { display: flex; gap: 16px; align-items: stretch;
+        justify-content: center; margin: 8px 0 16px; }
+      .char-list { display: flex; flex-direction: column; gap: 6px;
+        justify-content: center; min-width: 110px; text-align: left; }
+      .char-name { padding: 4px 10px; border-radius: 4px; color: #8d97ac;
+        white-space: pre; }
+      .char-name.sel { color: #e7edff; background: #16203a;
+        box-shadow: inset 0 0 0 1px #2a3a66; }
+      .char-name.locked { color: #5a6076; font-style: italic; }
+      .char-pane { width: 150px; padding: 12px; border-radius: 6px;
+        background: #0c1120; border: 1px solid var(--accent, #2a3346);
+        box-shadow: 0 0 20px -6px var(--accent, transparent);
+        display: flex; flex-direction: column; align-items: center; gap: 6px; }
+      .char-portrait { width: 88px; height: 88px; object-fit: contain;
+        object-position: bottom; filter: drop-shadow(0 0 8px var(--accent, transparent)); }
+      .char-info { width: 100%; text-align: center; }
+      .char-pane-name { font-size: 16px; font-weight: 700; color: var(--accent, #e7edff);
+        letter-spacing: 1px; }
+      .char-pane-blurb { margin: 4px 0 8px; color: #aeb6c8; line-height: 1.4; }
+      .char-pane-stat { display: flex; justify-content: space-between; gap: 10px;
+        padding: 2px 0; color: #cdd6ea; border-top: 1px solid #1c2233; }
+      .char-pane-stat span { color: #7c8398; }
       /* Ending staff-roll: a credits column scrolled bottom-to-top, clipped to the field
          and drawn over the dimmed frozen playfield. The in-game screen's `.menu-screen`
          backdrop is reused; the inner column is translated upward each frame in JS. */

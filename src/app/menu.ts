@@ -20,6 +20,22 @@ const RIGHT = new Set(["ArrowRight", "KeyD"]);
 const CONFIRM = new Set(["KeyZ", "Enter", "NumpadEnter"]);
 const CANCEL = new Set(["Escape", "KeyX"]);
 
+/** A menu navigation intent read from a raw `KeyboardEvent.code`. */
+export type MenuNav = "up" | "down" | "left" | "right" | "confirm" | "cancel";
+
+/** Map a raw key code to a menu navigation intent, or `undefined` for an unrelated key.
+ *  The single source of truth for menu nav keys — shared by `createMenu` and any screen
+ *  that drives its own DOM (e.g. character-select) so the two can't drift apart. */
+export function classifyMenuKey(code: string): MenuNav | undefined {
+  if (UP.has(code)) return "up";
+  if (DOWN.has(code)) return "down";
+  if (LEFT.has(code)) return "left";
+  if (RIGHT.has(code)) return "right";
+  if (CONFIRM.has(code)) return "confirm";
+  if (CANCEL.has(code)) return "cancel";
+  return undefined;
+}
+
 /** An item that runs an action when confirmed. */
 export interface ActionItem {
   kind: "action";
@@ -111,30 +127,31 @@ export function createMenu(parent: HTMLElement, config: MenuConfig): Menu {
     handleEvents(codes: readonly string[]): void {
       for (const code of codes) {
         const item = config.items[selected];
-        if (UP.has(code)) {
+        const nav = classifyMenuKey(code);
+        if (nav === "up") {
           move(-1);
-        } else if (DOWN.has(code)) {
+        } else if (nav === "down") {
           move(1);
-        } else if (LEFT.has(code)) {
+        } else if (nav === "left") {
           if (item?.kind === "value") {
             item.left();
             render();
             // After the tweak — so a volume slider's tick plays at its NEW level.
             config.onSfx?.(SfxId.MenuMove);
           }
-        } else if (RIGHT.has(code)) {
+        } else if (nav === "right") {
           if (item?.kind === "value") {
             item.right();
             render();
             config.onSfx?.(SfxId.MenuMove);
           }
-        } else if (CONFIRM.has(code)) {
+        } else if (nav === "confirm") {
           if (item?.kind === "action") {
             config.onSfx?.(SfxId.MenuConfirm);
             item.onConfirm();
             return; // may have torn down this screen
           }
-        } else if (CANCEL.has(code)) {
+        } else if (nav === "cancel") {
           // Sound only a real cancel (some menus have none, e.g. the title); the press is
           // still consumed either way, preserving the prior return-on-cancel behaviour.
           if (config.onCancel) {

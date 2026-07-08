@@ -171,9 +171,31 @@ export const demoGame = defineGame({
   // Focus has an explicit offensive bomb. All share the run's player config; a
   // different game would tune lives/speed per character too.
   characters: [
-    { id: "Spread", config: DEFAULT_PLAYER_CONFIG, shot: SPREAD_SHOT, sprite: demoSprites.player, portrait: demoPortraits.heroine },
-    { id: "Focus", config: DEFAULT_PLAYER_CONFIG, shot: FOCUS_SHOT, bomb: FOCUS_BOMB, sprite: demoSprites.player, portrait: demoPortraits.heroine },
-    { id: "Homing", config: DEFAULT_PLAYER_CONFIG, shot: HOMING_SHOT, sprite: demoSprites.player, portrait: demoPortraits.heroine },
+    {
+      id: "Spread",
+      description: "The all-rounder. Wide unfocused fans for crowds; focus tightens it into a column.",
+      config: DEFAULT_PLAYER_CONFIG,
+      shot: SPREAD_SHOT,
+      sprite: demoSprites.player,
+      portrait: demoPortraits.heroine,
+    },
+    {
+      id: "Focus",
+      description: "The glass cannon. A narrow column of hard-hitting stars, and an offensive bomb.",
+      config: DEFAULT_PLAYER_CONFIG,
+      shot: FOCUS_SHOT,
+      bomb: FOCUS_BOMB,
+      sprite: demoSprites.player,
+      portrait: demoPortraits.heroine,
+    },
+    {
+      id: "Homing",
+      description: "Tracking amulets while unfocused; focus drops them for a much stronger needle.",
+      config: DEFAULT_PLAYER_CONFIG,
+      shot: HOMING_SHOT,
+      sprite: demoSprites.player,
+      portrait: demoPortraits.heroine,
+    },
   ],
   // Four difficulties, easiest-first — the chosen entry's INDEX is the rank the content
   // scales on (see `./difficulty`: Easy 0 … Lunatic 3, with NORMAL the unscaled anchor).

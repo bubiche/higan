@@ -82,6 +82,17 @@ export interface StageDef {
 /** A playable character: its movement/life tuning plus its shot and bomb definitions. */
 export interface CharacterDef {
   readonly id: string;
+  /** Display name on the character-select screen, if it should differ from the stable
+   *  `id` (which keys saves/replays). Optional — the `id` is shown when omitted. */
+  readonly name?: string;
+  /** One-line blurb shown when this character is highlighted on select — flavor / a
+   *  hint at the shot's feel. Mirrors `DifficultyDef.description`. Optional. */
+  readonly description?: string;
+  /** Marks this character as locked: it appears on select but can't be chosen (rendered
+   *  as a placeholder row). Default false. Presentation/meta only — a locked character is
+   *  never selectable, so it never reaches the sim. The reference game ships every
+   *  character unlocked; this is infra for a game that gates part of its roster. */
+  readonly locked?: boolean;
   readonly config: PlayerConfig;
   /** The character's player-shot definition. Defaults to the engine's standard shot
    *  if omitted, so a minimal game needn't author one. */
