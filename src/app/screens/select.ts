@@ -22,7 +22,11 @@ import { createTitleScreen } from "./title";
 import { createCharacterScreen } from "./character";
 import { DEFAULT_DIFFICULTIES } from "../../api/game";
 
-export function createSelectScreen(shell: Shell, character: number): Screen {
+export function createSelectScreen(
+  shell: Shell,
+  character: number,
+  stageSequence?: readonly number[],
+): Screen {
   const { overlay, input } = shell;
   // The game's difficulties (engine fallback if it authored none); the entry's index
   // is the rank passed to the run.
@@ -48,17 +52,20 @@ export function createSelectScreen(shell: Shell, character: number): Screen {
         // else straight to the title (the character screen was skipped on the way in).
         onCancel: () =>
           shell.router.replace(
-            shell.def.characters.length > 1 ? createCharacterScreen(shell) : createTitleScreen(shell),
+            shell.def.characters.length > 1 ? createCharacterScreen(shell, stageSequence) : createTitleScreen(shell),
           ),
         onSfx: (id) => shell.audio.play(id),
         items: difficulties.map((d, rank) => ({
           kind: "action",
           label: d.label,
           // The chosen rank is this entry's index; the character was chosen upstream. A
-          // fresh controller starts a clean run with both. Fade through black into the stage.
+          // fresh controller starts a clean run with both (and the standalone stage sequence,
+          // if this is an Extra/practice entry). Fade through black into the stage.
           onConfirm: () =>
             shell.transition(() =>
-              shell.router.replace(createInGameScreen(shell, createRunController(shell.def, rank, character))),
+              shell.router.replace(
+                createInGameScreen(shell, createRunController(shell.def, rank, character, stageSequence)),
+              ),
             ),
         })),
       });

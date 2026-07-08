@@ -37,8 +37,14 @@ export function createResultsScreen(
   const heading = outcome === "clear" ? "STAGE CLEAR" : "GAME OVER";
   const scoreLine =
     score !== undefined ? `<p class="menu-hint">Score <b>${score.toLocaleString("en-US")}</b></p>` : "";
-  // A clear with a score + the run in hand records a hi-score (game-over carries neither).
-  const records = outcome === "clear" && run !== undefined && score !== undefined;
+  // Durable run-end projections (hi-score + Extra unlock) fire only on a MAIN-campaign clear
+  // that carries a score + run (game-over carries neither). A standalone single-stage run
+  // (Extra/practice) is deliberately excluded: it shares a character×difficulty key with the
+  // campaign, so recording it would overwrite the campaign's record, and an Extra clear must
+  // not re-evaluate the very unlock that gates Extra. Such a run still shows its results card;
+  // it just leaves the durable meta untouched.
+  const records =
+    outcome === "clear" && run !== undefined && score !== undefined && run.isMainCampaign;
   let el: HTMLElement;
 
   return {
@@ -60,17 +66,10 @@ export function createResultsScreen(
           (shell.def.difficulties ?? DEFAULT_DIFFICULTIES)[run!.difficulty]!.id,
           score!,
         );
-        // The Extra-stage unlock — the other durable run-end projection. Evaluate the game's
-        // unlock policy against this run's outcome facts and set the flag if it passes
-        // (idempotent: `= true` can't "re-unlock", so re-clearing is a no-op). Presentation/
-        // meta like the hi-score, never hashed.
-        //
-        // DEFERRED GATE (owned by the Extra/practice work, not built now): today every clear
-        // that reaches results with a run IS the final MAIN-campaign clear — a non-final clear
-        // advances instead of ending, and game-over carries no run. Once standalone single-stage
-        // runs exist (Extra, practice), a practice/Extra clear also lands here, and under
-        // "any-clear" would WRONGLY flip the unlock. When such runs exist, gate this on "the run
-        // is the main campaign", exactly like the staff-roll gate in the in-game screen.
+        // The Extra-stage unlock — the other durable run-end projection (main-campaign only,
+        // via the `records` gate above). Evaluate the game's unlock policy against this run's
+        // outcome facts and set the flag if it passes (idempotent: `= true` can't "re-unlock",
+        // so re-clearing is a no-op). Presentation/meta like the hi-score, never hashed.
         if (
           evaluateExtraUnlock(shell.def.config.extraUnlock, {
             cleared: true,

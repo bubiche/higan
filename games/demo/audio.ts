@@ -13,6 +13,17 @@
 // entry keyed by `SfxId`.
 
 import { bgmLoop, defineBgm, type AudioManifest } from "higan";
+// The Extra BOSS theme is a REAL audio file — the reference example of a `kind: "url"` BGM
+// (every other track here is a procedural synth placeholder). It scores the climax (the boss
+// fight, the stage's longest sustained stretch), so the Extra stage's signature sound is the
+// real track; the waves use a synth stage theme, so crossing into the boss is also a musical
+// shift from placeholder to real file. Imported through Vite so it resolves to a base-relative
+// hashed URL in the build; the engine fetches + decodes it exactly like the synth tracks
+// resolve to a buffer, so nothing else in the game or engine changes.
+//
+// Attribution (CC-BY 4.0, required): "Crypto" by Kevin MacLeod (https://incompetech.com/),
+// licensed under Creative Commons By Attribution 4.0. Also credited in the README.
+import extraThemeUrl from "./assets/audio/extra-theme.mp3";
 
 // Distinct loops: calm title, mid-tempo stage, driving minor boss, resolving results.
 // Chords are semitone offsets from each track's root; the first offset is the bass note.
@@ -119,6 +130,23 @@ const boss3Theme = bgmLoop({
   ],
 });
 
+// The Extra STAGE theme (the waves) is a synth placeholder — fast and hard-edged, the
+// campaign's driving sawtooth pushed up in tempo for the post-clear stage; the boss then
+// swaps it for the real audio file (see the import above).
+const extraStageTheme = bgmLoop({
+  bpm: 178,
+  root: 45, // A2 — the lowest, heaviest root
+  wave: "sawtooth",
+  introBars: 1,
+  gain: 0.4,
+  progression: [
+    [0, 3, 7], // Am
+    [0, 3, 7], // Am
+    [-3, 0, 5], // F
+    [8, 12, 15], // Fmaj-ish lift
+  ],
+});
+
 const resultsTheme = bgmLoop({
   bpm: 100,
   root: 60, // C4
@@ -143,6 +171,9 @@ export const demoBgm = defineBgm({
   boss2: { title: "The Songstress's Verse", source: { kind: "synth", gen: boss2Theme } },
   stage3: { title: "Starlit Ascent", source: { kind: "synth", gen: stage3Theme } },
   boss3: { title: "Sovereign of the Long Night", source: { kind: "synth", gen: boss3Theme } },
+  extra: { title: "Flowers of the Far Shore", source: { kind: "synth", gen: extraStageTheme } },
+  // The Extra boss theme — the one real audio FILE in the game (see the import above).
+  bossExtra: { title: "Warden of the Crimson Shore", source: { kind: "url", src: extraThemeUrl } },
   results: { title: "Afterglow", source: { kind: "synth", gen: resultsTheme } },
 });
 

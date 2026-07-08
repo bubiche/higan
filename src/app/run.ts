@@ -69,6 +69,12 @@ export interface RunController {
    *  (handing state forward) rather than ending the run. False on the final stage and on
    *  any standalone single-stage run (Extra/practice). */
   readonly hasNextStage: boolean;
+  /** True for the ordered main-campaign chain; false for a standalone single-stage run
+   *  (an explicit `stageSequence` was given — Extra, and later per-stage practice). The
+   *  run-end projections that belong to *finishing the campaign* key off this: only a main
+   *  run rolls the ending staff-roll, records a hi-score, and evaluates the Extra unlock. A
+   *  standalone clear goes straight to results and leaves that meta untouched. */
+  readonly isMainCampaign: boolean;
   /** Record a continued play: append it as a prior segment AND spend a continue, then drop
    *  any carried-in run-state (a continue restarts the CURRENT stage from a fresh full-
    *  resource start). The append + the continue always happen together (a play becomes a
@@ -107,6 +113,9 @@ export function createRunController(
   // its sequence (a continue repeats an index, an advance is +1), so playback drives
   // `currentStageIndex` per segment rather than walking this.
   const sequence: readonly number[] = stageSequence ?? def.stages.flatMap((s, i) => (s.extra ? [] : [i]));
+  // A caller-supplied sequence means a standalone run (Extra/practice); the default chain
+  // is the main campaign. This is the one signal both run-end campaign projections read.
+  const isMainCampaign = stageSequence === undefined;
   let cursor = 0;
   let currentStageIndex = sequence[cursor]!;
   let carryIn: CarryIn | null = null;
@@ -137,6 +146,7 @@ export function createRunController(
     get hasNextStage(): boolean {
       return cursor < sequence.length - 1;
     },
+    isMainCampaign,
     recordContinue(segment: ReplaySegment): void {
       priorSegments.push(segment);
       continuesUsed++;

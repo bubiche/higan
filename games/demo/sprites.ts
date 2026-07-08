@@ -234,6 +234,50 @@ const midbossBody: ImageSource = {
   },
 };
 
+/** The Extra boss's body: a red-spider-lily bloom — a bright core ringed by six long,
+ *  outward-curling stamens (the signature filaments of the higanbana). Its silhouette reads
+ *  distinct from the finals' brim / crest / veil. Static; drawn white so its crimson
+ *  `BossVisual.color` tints it. */
+const shorekeeperBody: ImageSource = {
+  kind: "procedural",
+  draw(ctx, size) {
+    const c = size / 2;
+    const R = size * 0.36;
+    // Six curling stamens radiating out (the spider-lily filaments), each a curved stroke
+    // with a small anther dot at the tip.
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.lineWidth = size * 0.02;
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
+      const ex = c + Math.cos(a) * R;
+      const ey = c + Math.sin(a) * R;
+      const mx = c + Math.cos(a + 0.5) * R * 0.6;
+      const my = c + Math.sin(a + 0.5) * R * 0.6;
+      ctx.beginPath();
+      ctx.moveTo(c, c);
+      ctx.quadraticCurveTo(mx, my, ex, ey);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.beginPath();
+      ctx.arc(ex, ey, size * 0.025, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Bright core bloom.
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.beginPath();
+    ctx.arc(c, c, R * 0.42, 0, Math.PI * 2);
+    ctx.fill();
+    // Inner petal ring.
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.ellipse(c + Math.cos(a) * R * 0.28, c + Math.sin(a) * R * 0.28, R * 0.16, R * 0.07, a, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  },
+};
+
 /** The player craft: a small upward arrowhead with a cockpit dot (static). */
 const player: ImageSource = {
   kind: "procedural",
@@ -271,5 +315,6 @@ export const demoSprites = defineSprites({
   gatekeeperBody: { source: gatekeeperBody }, // stage-1 final boss
   songstressBody: { source: songstressBody }, // stage-2 final boss
   sovereignBody: { source: sovereignBody }, // stage-3 final boss
-  midbossBody: { source: midbossBody }, // all three midbosses (tinted per stage)
+  shorekeeperBody: { source: shorekeeperBody }, // Extra-stage boss
+  midbossBody: { source: midbossBody }, // all three midbosses + the Extra midboss (tinted per stage)
 });

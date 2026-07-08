@@ -23,17 +23,23 @@ import { DEFAULT_DIFFICULTIES } from "../../api/game";
  *  a choice, else straight into a fresh run at rank 0 (mirroring the title's difficulty
  *  skip). Called from the character screen's confirm AND from the title when it skips the
  *  character screen for a single-character game, so the "after a character is chosen" step
- *  lives in one place. */
-export function proceedAfterCharacter(shell: Shell, character: number): void {
+ *  lives in one place. `stageSequence` (present for a standalone Extra/practice entry) is
+ *  threaded to the run controller unchanged — the character/difficulty choice is identical
+ *  whether the run is the main campaign or a single stage. */
+export function proceedAfterCharacter(
+  shell: Shell,
+  character: number,
+  stageSequence?: readonly number[],
+): void {
   const difficulties = shell.def.difficulties ?? DEFAULT_DIFFICULTIES;
   if (difficulties.length <= 1) {
-    shell.router.replace(createInGameScreen(shell, createRunController(shell.def, 0, character)));
+    shell.router.replace(createInGameScreen(shell, createRunController(shell.def, 0, character, stageSequence)));
   } else {
-    shell.router.replace(createSelectScreen(shell, character));
+    shell.router.replace(createSelectScreen(shell, character, stageSequence));
   }
 }
 
-export function createCharacterScreen(shell: Shell): Screen {
+export function createCharacterScreen(shell: Shell, stageSequence?: readonly number[]): Screen {
   const { overlay, input } = shell;
   const characters = shell.def.characters;
   let menu: Menu;
@@ -52,8 +58,9 @@ export function createCharacterScreen(shell: Shell): Screen {
           kind: "action",
           // No display-name field on CharacterDef yet (kept minimal) — the id IS the label.
           label: c.id,
-          // The chosen index flows down through difficulty into the run controller.
-          onConfirm: () => proceedAfterCharacter(shell, index),
+          // The chosen index flows down through difficulty into the run controller, carrying
+          // the standalone stage sequence (if any) along with it.
+          onConfirm: () => proceedAfterCharacter(shell, index, stageSequence),
         })),
       });
     },

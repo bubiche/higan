@@ -408,21 +408,18 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
         shell.router.replace(createInGameScreen(shell, run));
       });
     } else {
-      // Final main-campaign stage cleared: roll the staff credits, then results — fading
-      // through black. Capture the score at the clear tick (the sim keeps stepping during the
-      // fade, so a read inside the callback could drift) and close it — with the run, for the
-      // hi-score write — over a thunk the ending calls to build results only when it hands off.
-      // The game-over path instead PUSHES the continue prompt (no fade — it keeps the frozen
-      // death moment).
-      //
-      // Today this branch is reached only by the main campaign's final clear, so it always
-      // rolls credits. A standalone single-stage run (one that starts at a chosen stage and
-      // never advances — with no next stage it lands here too) must NOT roll credits; when such
-      // runs exist, gate the staff-roll on "this run is the main campaign" and send a standalone
-      // clear straight to results.
+      // No next stage — either the main campaign's final clear or a standalone single-stage
+      // run (Extra/practice) that never advances. Capture the score at the clear tick (the sim
+      // keeps stepping during the fade, so a read inside the callback could drift) and fade
+      // through black. The game-over path instead PUSHES the continue prompt (no fade — it
+      // keeps the frozen death moment).
       const finalScore = sim.player.score;
+      const toResults = (): Screen => createResultsScreen(shell, outcome, finalScore, run);
       shell.transition(() =>
-        shell.router.replace(createEndingScreen(shell, () => createResultsScreen(shell, outcome, finalScore, run))),
+        // Only finishing the CAMPAIGN rolls the ending staff-roll (with results as its hand-off,
+        // built lazily so the score/run are captured now). A standalone clear has no ending — it
+        // is one stage, not the end of the game — so it goes straight to results.
+        shell.router.replace(run.isMainCampaign ? createEndingScreen(shell, toResults) : toResults()),
       );
     }
   };

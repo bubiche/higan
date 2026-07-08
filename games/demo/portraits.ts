@@ -240,6 +240,82 @@ const nocturne: ImageSource = {
   },
 };
 
+/** The Extra boss: the Crimson Shorekeeper — warden of the far shore. A crimson-robed figure
+ *  crowned with the curling stamens of a red spider lily, so her silhouette reads distinct from
+ *  the campaign bosses' brim / crest / star-crown. The deepest, most saturated portrait — the
+ *  post-campaign challenge. */
+const shorekeeper: ImageSource = {
+  kind: "procedural",
+  draw(ctx, size) {
+    const c = size / 2;
+    // Robe/torso (rises from the bottom edge), deep crimson.
+    ctx.fillStyle = "rgba(150,20,40,0.96)";
+    ctx.beginPath();
+    ctx.moveTo(c - size * 0.32, size);
+    ctx.quadraticCurveTo(c - size * 0.38, size * 0.56, c - size * 0.14, size * 0.5);
+    ctx.lineTo(c + size * 0.14, size * 0.5);
+    ctx.quadraticCurveTo(c + size * 0.38, size * 0.56, c + size * 0.32, size);
+    ctx.closePath();
+    ctx.fill();
+    // A dark trailing shawl behind the shoulders (low alpha).
+    ctx.fillStyle = "rgba(90,10,30,0.7)";
+    ctx.beginPath();
+    ctx.moveTo(c, size * 0.52);
+    ctx.quadraticCurveTo(c - size * 0.44, size * 0.68, c - size * 0.36, size);
+    ctx.lineTo(c - size * 0.2, size);
+    ctx.quadraticCurveTo(c - size * 0.16, size * 0.68, c, size * 0.56);
+    ctx.quadraticCurveTo(c + size * 0.16, size * 0.68, c + size * 0.2, size);
+    ctx.lineTo(c + size * 0.36, size);
+    ctx.quadraticCurveTo(c + size * 0.44, size * 0.68, c, size * 0.52);
+    ctx.closePath();
+    ctx.fill();
+    // Sash accent (bright scarlet).
+    ctx.fillStyle = "rgba(255,80,70,0.9)";
+    ctx.beginPath();
+    ctx.moveTo(c, size * 0.5);
+    ctx.lineTo(c - size * 0.13, size * 0.7);
+    ctx.lineTo(c + size * 0.13, size * 0.7);
+    ctx.closePath();
+    ctx.fill();
+    // Long hair framing the face (dark wine).
+    ctx.fillStyle = "rgba(120,30,55,0.98)";
+    ctx.beginPath();
+    ctx.arc(c, size * 0.4, size * 0.16, Math.PI * 0.8, Math.PI * 2.2);
+    ctx.fill();
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(c + s * size * 0.15, size * 0.55, size * 0.05, size * 0.18, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Face.
+    ctx.fillStyle = "rgba(250,238,236,0.98)";
+    ctx.beginPath();
+    ctx.arc(c, size * 0.4, size * 0.13, 0, Math.PI * 2);
+    ctx.fill();
+    // A spider-lily crown: curling stamens fanning up from behind the head.
+    ctx.strokeStyle = "rgba(255,60,60,0.95)";
+    ctx.lineWidth = size * 0.012;
+    for (const dx of [-0.11, -0.06, 0, 0.06, 0.11]) {
+      const bx = c + dx * size;
+      ctx.beginPath();
+      ctx.moveTo(bx, size * 0.27);
+      ctx.quadraticCurveTo(bx + dx * size * 1.2, size * 0.13, bx + dx * size * 1.9, size * 0.16);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255,120,110,0.95)";
+      ctx.beginPath();
+      ctx.arc(bx + dx * size * 1.9, size * 0.16, size * 0.014, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Glowing crimson eyes.
+    ctx.fillStyle = "rgba(255,70,70,1)";
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(c + s * size * 0.05, size * 0.41, size * 0.02, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  },
+};
+
 /**
  * The game's cut-in portraits. Referenced from `stage.bossInfo.portrait` and
  * `character.portrait` — NOT from `assets.sprites.library`, so they resolve to DOM images
@@ -249,5 +325,6 @@ export const demoPortraits = defineSprites({
   gatekeeper: { source: gatekeeper },
   songstress: { source: songstress },
   nocturne: { source: nocturne },
+  shorekeeper: { source: shorekeeper },
   heroine: { source: heroine },
 });

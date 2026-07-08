@@ -11,7 +11,7 @@
 // them at full resolution. So the author never decides "which bucket" — it's the usage.
 
 import { defineSprites, type ImageSource } from "higan";
-import tileUrl from "./assets/tile.png";
+import extraShoreUrl from "./assets/images/extra-shore.png";
 
 // A tiny deterministic PRNG (mulberry32) so the starfield is STABLE across loads/hot-reloads
 // — a placeholder that reshuffles on every edit would be distracting. Presentation-only, so
@@ -174,11 +174,55 @@ const astralNear: ImageSource = {
   },
 };
 
-// example of a url source
-const tiles: ImageSource = {
-  kind: "url",
-  src: tileUrl,
+/** Crimson variant of the star scatter: deep-red spider-lily motes (scarlet→wine), for the
+ *  Extra stage's far-shore sky. Same seamless-tiling wrap trick as `scatterStars`. */
+function scatterPetals(
+  ctx: CanvasRenderingContext2D,
+  size: number,
+  count: number,
+  seed: number,
+  minR: number,
+  maxR: number,
+): void {
+  const rnd = mulberry32(seed);
+  for (let i = 0; i < count; i++) {
+    const x = rnd() * size;
+    const y = rnd() * size;
+    const r = minR + rnd() * (maxR - minR);
+    // Warm sweep scarlet→wine per mote.
+    const warm = rnd();
+    const cr = 210 + Math.round(warm * 45);
+    const cg = 30 + Math.round(warm * 55);
+    const cb = 45 + Math.round(warm * 40);
+    const a = 0.45 + rnd() * 0.5;
+    for (let dx = -size; dx <= size; dx += size) {
+      for (let dy = -size; dy <= size; dy += size) {
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(${cr},${cg},${cb},${a})`;
+        ctx.arc(x + dx, y + dy, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
 }
+
+/** Near crimson field: scarlet motes drawn over the image far layer — the faster foreground
+ *  layer whose speed against the far shore is the parallax. */
+const petalDriftNear: ImageSource = {
+  kind: "procedural",
+  draw(ctx, size) {
+    scatterPetals(ctx, size, 26, 0xb17e, 1.3, 2.9);
+  },
+};
+
+// The Extra stage's far layer is a REAL image file — the reference example of a `kind: "url"`
+// background asset (a seamless-tiling crimson "far shore" texture), imported through Vite so
+// it resolves to a base-relative hashed URL in the build. Every other background layer here is
+// procedural; this is the one that ships bytes, mirroring the Extra BGM (a `url` audio file).
+const extraShore: ImageSource = {
+  kind: "url",
+  src: extraShoreUrl,
+};
 
 /** Background handles. Referenced from the stage's `background` (see ./game.ts), not the
  *  sprite library. Swap either `source` to `{ kind: "url", src }` for a real tiling texture. */
@@ -189,6 +233,8 @@ export const demoBackground = defineSprites({
   emberDriftNear: { source: emberDriftNear },
   astralFar: { source: astralFar },
   astralNear: { source: astralNear },
+  extraShore: { source: extraShore },
+  petalDriftNear: { source: petalDriftNear },
 });
 
 /** The stage's parallax layers, back-to-front: the slow far field under the faster near
@@ -211,6 +257,15 @@ export const demoStage2BackgroundLayers = [
 export const demoStage3BackgroundLayers = [
   { sprite: demoBackground.astralFar, scrollY: 9, opacity: 0.85 },
   { sprite: demoBackground.astralNear, scrollY: 30, opacity: 0.95 },
+];
+
+/** The Extra stage's parallax layers, back-to-front: the real crimson-shore IMAGE as the slow
+ *  far layer, under a faster procedural petal drift. Mixing a `url` image layer with a
+ *  procedural one in a single stage is the point — the loader treats both the same. Handed to
+ *  the Extra `StageDef.background.layers`. */
+export const demoExtraBackgroundLayers = [
+  { sprite: demoBackground.extraShore, scrollY: 14, opacity: 0.9 },
+  { sprite: demoBackground.petalDriftNear, scrollY: 50, opacity: 0.95 },
 ];
 
 /** The title/character-select/options menu background — a single, slower pass of the SAME

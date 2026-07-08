@@ -4,11 +4,13 @@
 // data handed to `defineGame`, importing only the public API and its own content.
 // The shell runs over this — nothing under `src/` knows it exists.
 //
-// It is a three-stage main campaign (each stage a self-contained folder under
-// `stages/` holding its scene script, boss, and midboss) with three characters.
-// A run chains the stages in order, handing score/lives/bombs/power across each
-// boundary; clearing the last stage rolls the ending. Adding a stage is adding a
-// folder + one entry in the `stages` array below — no engine change.
+// It is a three-stage main campaign plus a standalone Extra stage (each stage a
+// self-contained folder under `stages/` holding its scene script, boss, and midboss)
+// with three characters. A run chains the main stages in order, handing
+// score/lives/bombs/power across each boundary; clearing the last main stage rolls the
+// ending. The `extra: true` stage sits outside that chain — reached only as a standalone
+// single-stage run once it is unlocked. Adding a stage is adding a folder + one entry in
+// the `stages` array below — no engine change.
 
 import {
   defineGame,
@@ -24,6 +26,8 @@ import { EMBER_BOSS } from "./stages/stage2/boss";
 import { emberStage } from "./stages/stage2/stage";
 import { NOCTURNE_BOSS } from "./stages/stage3/boss";
 import { nocturneStage } from "./stages/stage3/stage";
+import { SHOREKEEPER_BOSS } from "./stages/extra/boss";
+import { shoreStage } from "./stages/extra/stage";
 import { demoAudio, demoBgm } from "./audio";
 import { demoSprites } from "./sprites";
 import { demoPortraits } from "./portraits";
@@ -31,6 +35,7 @@ import {
   demoBackgroundLayers,
   demoStage2BackgroundLayers,
   demoStage3BackgroundLayers,
+  demoExtraBackgroundLayers,
   demoMenuBackgroundLayers,
 } from "./background";
 
@@ -146,6 +151,20 @@ export const demoGame = defineGame({
       bossInfo: { name: "Nocturne Sovereign", portrait: demoPortraits.nocturne },
       music: { stage: demoBgm.stage3, boss: demoBgm.boss3 },
       background: { layers: demoStage3BackgroundLayers },
+    },
+    {
+      // The Extra stage. `extra: true` keeps it OUT of the main-campaign chain (the run
+      // controller only chains non-extra stages); it is reachable solely as a standalone
+      // single-stage run from the title's Extra entry, which appears once `unlocks.extra` is
+      // set (clearing Stage 3). Its far-shore theme is the game's one real audio FILE and its
+      // background far layer the one real image FILE — the reference url-asset examples.
+      id: "extra",
+      extra: true,
+      script: shoreStage,
+      boss: SHOREKEEPER_BOSS,
+      bossInfo: { name: "Crimson Shorekeeper", portrait: demoPortraits.shorekeeper },
+      music: { stage: demoBgm.extra, boss: demoBgm.bossExtra },
+      background: { layers: demoExtraBackgroundLayers },
     },
   ],
   // Three characters: Spread and Homing share the default defensive bomb (omitted);

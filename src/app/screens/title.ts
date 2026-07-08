@@ -28,9 +28,13 @@ export function createTitleScreen(shell: Shell): Screen {
   // there's nothing to choose: skip straight to the difficulty step (which itself skips to
   // a fresh run when there's a single difficulty). The "after a character is chosen" step
   // lives in `proceedAfterCharacter`, shared with the character screen's confirm.
-  const start = (): void => {
-    if (def.characters.length <= 1) proceedAfterCharacter(shell, CHARACTER_INDEX);
-    else shell.router.replace(createCharacterScreen(shell));
+  //
+  // `stageSequence` distinguishes the two entry points: the main campaign passes none (the
+  // controller chains the campaign stages), while the Extra entry passes `[extraIndex]` — a
+  // standalone single-stage run. Both share the identical character/difficulty flow.
+  const start = (stageSequence?: readonly number[]): void => {
+    if (def.characters.length <= 1) proceedAfterCharacter(shell, CHARACTER_INDEX, stageSequence);
+    else shell.router.replace(createCharacterScreen(shell, stageSequence));
   };
 
   // `shell.router` is read lazily inside the callbacks (NOT destructured here): the
@@ -48,8 +52,16 @@ export function createTitleScreen(shell: Shell): Screen {
       // Music room only if the game declares a BGM library — a silent game would open an
       // empty, dead-end room, so it doesn't get the entry.
       const hasBgm = Object.keys(def.assets?.audio?.bgm ?? {}).length > 0;
+      // Extra entry: shown only once the game has an Extra stage AND the save has unlocked it
+      // (a fresh save hides it entirely — the reveal IS the reward). It launches a standalone
+      // single-stage run at that stage rather than the campaign chain.
+      const extraIndex = def.stages.findIndex((s) => s.extra);
+      const extraUnlocked = extraIndex !== -1 && shell.save.unlocks.extra;
       const items: MenuItem[] = [
-        { kind: "action", label: "Start", onConfirm: start },
+        { kind: "action", label: "Start", onConfirm: () => start() },
+        ...(extraUnlocked
+          ? [{ kind: "action" as const, label: "Extra", onConfirm: () => start([extraIndex]) }]
+          : []),
         ...(hasBgm
           ? [{ kind: "action" as const, label: "Music Room", onConfirm: () => shell.router.push(createMusicRoomScreen(shell)) }]
           : []),
