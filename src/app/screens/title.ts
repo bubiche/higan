@@ -14,6 +14,7 @@ import { createCharacterScreen, proceedAfterCharacter } from "./character";
 import { CHARACTER_INDEX } from "../run";
 import { createOptionsScreen } from "./options";
 import { createMusicRoomScreen } from "./musicroom";
+import { createRecordsScreen } from "./records";
 import type { MenuItem } from "../menu";
 
 export function createTitleScreen(shell: Shell): Screen {
@@ -65,6 +66,10 @@ export function createTitleScreen(shell: Shell): Screen {
         ...(hasBgm
           ? [{ kind: "action" as const, label: "Music Room", onConfirm: () => shell.router.push(createMusicRoomScreen(shell)) }]
           : []),
+        // Records: the hi-score grid viewer. Always shown — a run always has a score, so
+        // unlike the Music Room (silent-game-gated) this is never a dead end; a fresh save
+        // just shows an all-"—" grid the player fills in.
+        { kind: "action", label: "Records", onConfirm: () => shell.router.push(createRecordsScreen(shell)) },
         { kind: "action", label: "Options", onConfirm: () => shell.router.push(createOptionsScreen(shell)) },
       ];
       menu = createMenu(overlay, {

@@ -22,7 +22,8 @@ import { createSelectScreen } from "./select";
 import { createTitleScreen } from "./title";
 import { createRunController } from "../run";
 import { createPortraitResolver } from "../portrait";
-import { DEFAULT_DIFFICULTIES } from "../../api/game";
+import { readHiScore } from "../save";
+import { DEFAULT_DIFFICULTIES, type CharacterDef } from "../../api/game";
 import { DEFAULT_SHOT_CONFIG, type ShotConfig } from "../../touhou/shot";
 import { DEFAULT_BOMB_CONFIG, type BombConfig } from "../../touhou/bomb";
 import { SfxId } from "../../core/events";
@@ -77,7 +78,23 @@ function accent(shot: ShotConfig): string {
 export function createCharacterScreen(shell: Shell, stageSequence?: readonly number[]): Screen {
   const { overlay, input } = shell;
   const characters = shell.def.characters;
+  const difficulties = shell.def.difficulties ?? DEFAULT_DIFFICULTIES;
   const portraitOf = createPortraitResolver();
+
+  // The highlighted character's best score across every difficulty — a contextual "how am I
+  // doing with this shot" glance. Difficulty isn't chosen at this step (it comes next), so
+  // there is no single rank to key on; this maxes over all of them and annotates the winning
+  // one. The full per-character×difficulty breakdown lives on the Records screen. Returns
+  // `null` when this character has no recorded score yet. Reads through `readHiScore` so it
+  // composes the save key identically to the writer.
+  const bestFor = (char: CharacterDef): { score: number; label: string } | null => {
+    let best: { score: number; label: string } | null = null;
+    for (const d of difficulties) {
+      const s = readHiScore(shell.save, char.id, d.id);
+      if (s !== null && (best === null || s > best.score)) best = { score: s, label: d.label };
+    }
+    return best;
+  };
   // This screen's own presentation clock for the menu background's scroll (mirrors title).
   let presentationClock = 0;
 
@@ -124,11 +141,14 @@ export function createCharacterScreen(shell: Shell, stageSequence?: readonly num
       } else {
         img.style.visibility = "hidden";
       }
+      const best = bestFor(c);
+      const bestText = best ? `${best.score.toLocaleString("en-US")} · ${best.label}` : "—";
       infoEl.innerHTML = `
         <div class="char-pane-name">${c.name ?? c.id}</div>
         ${c.description ? `<p class="char-pane-blurb">${c.description}</p>` : ""}
         <div class="char-pane-stat"><span>Shot</span> ${shotSummary(shot)}</div>
-        <div class="char-pane-stat"><span>Bomb</span> ${bombSummary(bomb)}</div>`;
+        <div class="char-pane-stat"><span>Bomb</span> ${bombSummary(bomb)}</div>
+        <div class="char-pane-stat"><span>Best</span> ${bestText}</div>`;
     }
     hintEl.textContent = "↑/↓ select · Z confirm · X back";
   };
