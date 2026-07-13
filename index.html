@@ -66,6 +66,26 @@
       .char-pane-stat { display: flex; justify-content: space-between; gap: 10px;
         padding: 2px 0; color: #cdd6ea; border-top: 1px solid #1c2233; }
       .char-pane-stat span { color: #7c8398; }
+      /* Records: the hi-score grid viewer (reuses .menu-screen's dimmed backdrop and the
+         .menu-hint footer). A compact font + tight cells keep the whole character×difficulty
+         grid inside the field at the 1.0× minimum scale for realistic scores (the field is only
+         384px wide there). overflow-x is a LAST-RESORT safety, not the plan: this UI is
+         keyboard-only, so nothing drives the scrollbar — a runaway score width would push the
+         far columns out of reach at 1.0× (they stay visible at the 1.6× default). Keep scores
+         readable without scrolling by keeping the grid narrow. */
+      .records-card { text-align: center; max-width: 100%; }
+      .records-card h1 { margin: 0 0 14px; font-size: 34px; letter-spacing: 6px;
+        font-weight: 700; color: #e7edff; text-shadow: 0 0 24px #2a52d0; }
+      .records-scroll { max-width: 100%; overflow-x: auto; margin: 8px 0 16px; }
+      .records-table { border-collapse: collapse; margin: 0 auto; font-size: 10px;
+        white-space: nowrap; }
+      .records-table th, .records-table td { padding: 3px 6px;
+        border: 1px solid #1c2233; }
+      .records-table thead th { color: #7c8398; font-weight: 400; }
+      .records-table thead th:first-child { border: none; }
+      .records-row-head { text-align: left; color: #cdd6ea; }
+      .records-row-head.locked { color: #5a6076; font-style: italic; }
+      .records-table td { text-align: right; color: #e7edff; }
       /* Ending staff-roll: a credits column scrolled bottom-to-top, clipped to the field
          and drawn over the dimmed frozen playfield. The in-game screen's `.menu-screen`
          backdrop is reused; the inner column is translated upward each frame in JS. */

@@ -20,7 +20,7 @@ import { classifyMenuKey } from "../menu";
 import { createInGameScreen } from "./ingame";
 import { createSelectScreen } from "./select";
 import { createTitleScreen } from "./title";
-import { createRunController } from "../run";
+import { createRunController, CHARACTER_INDEX } from "../run";
 import { createPortraitResolver } from "../portrait";
 import { readHiScore } from "../save";
 import { DEFAULT_DIFFICULTIES, type CharacterDef } from "../../api/game";
@@ -46,6 +46,19 @@ export function proceedAfterCharacter(
   } else {
     shell.router.replace(createSelectScreen(shell, character, stageSequence));
   }
+}
+
+/** Enter the run-launch flow: character-select if the game offers a choice of character, else
+ *  straight past it (a single-character game skips the screen, mirroring how the title skips
+ *  difficulty for a single-difficulty game). `stageSequence` distinguishes the entry point: the
+ *  main campaign passes none (the run controller chains the campaign stages); a standalone entry
+ *  — the Extra stage, or a practice run — passes `[stageIndex]` for a single-stage run. Shared by
+ *  the title's Start/Extra items and the practice menu so every launch decides "pick a character
+ *  or skip" identically. Uses `replace`, so the launched flow joins the single-entry chain (the
+ *  launching screen is replaced away; backing out of the flow returns to the title). */
+export function beginRun(shell: Shell, stageSequence?: readonly number[]): void {
+  if (shell.def.characters.length <= 1) proceedAfterCharacter(shell, CHARACTER_INDEX, stageSequence);
+  else shell.router.replace(createCharacterScreen(shell, stageSequence));
 }
 
 /** A compact, generic preview of a shot config — derived, not authored (the engine owns

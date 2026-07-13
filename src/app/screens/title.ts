@@ -10,11 +10,11 @@
 
 import type { Screen, Shell } from "../screen";
 import { createMenu, type Menu } from "../menu";
-import { createCharacterScreen, proceedAfterCharacter } from "./character";
-import { CHARACTER_INDEX } from "../run";
+import { beginRun } from "./character";
 import { createOptionsScreen } from "./options";
 import { createMusicRoomScreen } from "./musicroom";
 import { createRecordsScreen } from "./records";
+import { createPracticeScreen, practiceableStageIndices } from "./practice";
 import type { MenuItem } from "../menu";
 
 export function createTitleScreen(shell: Shell): Screen {
@@ -25,18 +25,11 @@ export function createTitleScreen(shell: Shell): Screen {
   // receiving `frame`), which pauses its scroll too.
   let presentationClock = 0;
 
-  // Start → character select, unless the game offers a single character, in which case
-  // there's nothing to choose: skip straight to the difficulty step (which itself skips to
-  // a fresh run when there's a single difficulty). The "after a character is chosen" step
-  // lives in `proceedAfterCharacter`, shared with the character screen's confirm.
-  //
-  // `stageSequence` distinguishes the two entry points: the main campaign passes none (the
-  // controller chains the campaign stages), while the Extra entry passes `[extraIndex]` — a
-  // standalone single-stage run. Both share the identical character/difficulty flow.
-  const start = (stageSequence?: readonly number[]): void => {
-    if (def.characters.length <= 1) proceedAfterCharacter(shell, CHARACTER_INDEX, stageSequence);
-    else shell.router.replace(createCharacterScreen(shell, stageSequence));
-  };
+  // Start / Extra / Practice all launch a run through the shared `beginRun` (character-select,
+  // or a skip for a single-character game). Its `stageSequence` distinguishes the entry: the
+  // main campaign passes none (the controller chains the campaign stages); Extra and practice
+  // pass `[stageIndex]` — a standalone single-stage run. All share the identical
+  // character/difficulty flow.
 
   // `shell.router` is read lazily inside the callbacks (NOT destructured here): the
   // title is the initial screen, so it is constructed by `createRouter(...)` before
@@ -58,10 +51,18 @@ export function createTitleScreen(shell: Shell): Screen {
       // single-stage run at that stage rather than the campaign chain.
       const extraIndex = def.stages.findIndex((s) => s.extra);
       const extraUnlocked = extraIndex !== -1 && shell.save.unlocks.extra;
+      // Practice entry: shown once at least one main-campaign stage has been reached (recorded
+      // as each stage is entered on a real run). Like Extra, a fresh save hides it — the reveal
+      // IS the reward — and it only ever grows. It opens a stage picker that launches a
+      // standalone single-stage run at the chosen stage.
+      const canPractice = practiceableStageIndices(def, shell.save).length > 0;
       const items: MenuItem[] = [
-        { kind: "action", label: "Start", onConfirm: () => start() },
+        { kind: "action", label: "Start", onConfirm: () => beginRun(shell) },
         ...(extraUnlocked
-          ? [{ kind: "action" as const, label: "Extra", onConfirm: () => start([extraIndex]) }]
+          ? [{ kind: "action" as const, label: "Extra", onConfirm: () => beginRun(shell, [extraIndex]) }]
+          : []),
+        ...(canPractice
+          ? [{ kind: "action" as const, label: "Practice", onConfirm: () => shell.router.push(createPracticeScreen(shell)) }]
           : []),
         ...(hasBgm
           ? [{ kind: "action" as const, label: "Music Room", onConfirm: () => shell.router.push(createMusicRoomScreen(shell)) }]

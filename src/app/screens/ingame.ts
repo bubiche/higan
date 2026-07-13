@@ -26,6 +26,7 @@ import { DT } from "../../core/playfield";
 import { PlayerState, readCarryIn, type CarryIn } from "../../touhou/player";
 import { serializeRunReplay, deserializeRunReplay, type RunReplay } from "../../touhou/replay";
 import { computeConfigId } from "../replay-compat";
+import { recordPracticeStage } from "../save";
 import { Shape } from "../../render/shapes";
 import { INSTANCE_FLOATS, type Overlay } from "../../render/bullets";
 import { marshalShots } from "../../render/shots";
@@ -428,6 +429,15 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
     enter(): void {
       input.flush();
       buildDom();
+      // A main-campaign run makes the stage it just entered available for practice — "reached",
+      // not "cleared", so a stage the player keeps dying on is practiceable (that is what
+      // practice is for). This fires for every genuine live entry (a fresh run, a stage-advance,
+      // a continue) but NOT for loading a replay (which rebuilds in place, never re-entering) or
+      // a hot-reload (`resync`), so a viewed replay can't grant unlocks. Standalone runs
+      // (Extra/practice) don't record — matching how the run-end projections gate on the main
+      // campaign — so an Extra/practice clear touches no progression. Persist only on a real
+      // change, so a continue re-entering an already-recorded stage doesn't thrash storage.
+      if (run.isMainCampaign && recordPracticeStage(shell.save, run.currentStageIndex)) shell.persist();
       // A fresh run shouldn't inherit the previous run's sparks / flash / shake.
       shell.vfx.reset();
       // Seed the cut-in appear tracker from the current boss presence (normally none at the
