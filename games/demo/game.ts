@@ -55,8 +55,8 @@ const SPREAD_SHOT: ShotConfig = {
   speed: 640,
   damage: 10,
   radius: 5,
-  sprite: Shape.Kunai,
-  color: [0.6, 0.9, 1.0],
+  sprite: demoSprites.shotAmulet, // full-colour custom image (white tint → shows its own colours)
+  color: [1, 1, 1],
   baseStreams: 2,
   powerPerStream: 32,
   maxStreams: 6,

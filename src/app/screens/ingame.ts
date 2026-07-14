@@ -128,6 +128,8 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
   // reuses the bullet renderer's program — no separate shot shader). Sized to the
   // pool cap × the bullet instance stride.
   const shotInstances = new Float32Array(SHOT_CAPACITY * INSTANCE_FLOATS);
+  // Custom-image shots split off onto the straight-alpha sprite pass; same pool cap.
+  const shotImageInstances = new Float32Array(SHOT_CAPACITY * INSTANCE_FLOATS);
   // Reused scratch for the enemy instance stream (enemies reuse the bullet program
   // too — Option B, no separate shader). Sized to the pool cap × the instance stride.
   const enemyInstances = new Float32Array(ENEMY_CAPACITY * INSTANCE_FLOATS);
@@ -579,8 +581,18 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       // passes is order-safe. Each `drawInstances` is issued before the next overwrites its
       // renderer's shared instance buffer. The canvas is cleared by the shell first.
       const beams = lasers.draw(sim.lasers.lasers);
-      const shotCount = marshalShots(sim.shots.shots, shotInstances);
-      bullets.drawInstances(shotInstances, shotCount);
+      // Player shots split by look: glow `Shape`s on the additive bullet pass, custom
+      // images on the straight-alpha sprite pass. Both draw here, UNDER the enemy/craft
+      // sprites and the danmaku (the existing "shots under everything for readability"
+      // order). The image lookup resolves an interned handle's current atlas layer (or
+      // -1 → the marshaller falls back to a glow orb).
+      const shotImageLayer = (tableId: number): number => {
+        const handle = sim.bulletImages[tableId];
+        return sprites.layerForBase(handle ? handle.layer : -1, clock);
+      };
+      const shotCounts = marshalShots(sim.shots.shots, shotInstances, shotImageInstances, shotImageLayer);
+      bullets.drawInstances(shotInstances, shotCounts.glow);
+      sprites.drawInstances(shotImageInstances, shotCounts.image);
       const enemyCount = marshalEnemies(sim.enemies.enemies, enemyInstances, (base) =>
         sprites.layerForBase(base < 0 ? sprites.defaultEnemyLayer : base, clock),
       );

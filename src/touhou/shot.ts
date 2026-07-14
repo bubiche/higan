@@ -19,6 +19,7 @@
 import type { InputFrame } from "../core/input";
 import { PlayerState, type Player } from "./player";
 import { sin, cos, atan2 } from "../core/trig";
+import type { BulletSprite } from "../api/sprites";
 
 /** A single player shot. Mutated in place inside its pool slot. */
 export interface Shot {
@@ -73,8 +74,9 @@ export interface ShotConfig {
   readonly damage: number;
   /** Collision + draw radius, sim units. */
   readonly radius: number;
-  /** Shape atlas layer for the (placeholder) sprite. */
-  readonly sprite: number;
+  /** The shot's look: a procedural glow `Shape` (number) or a `SpriteHandle` for a
+   *  custom image. Render-only (not hashed). */
+  readonly sprite: BulletSprite;
   /** Linear RGB tint. */
   readonly color: readonly [number, number, number];
   /** Streams per volley at power 0. */
@@ -111,8 +113,9 @@ export interface HomingShotConfig {
   readonly turnRate: number;
   /** Collision + draw radius, sim units. */
   readonly radius: number;
-  /** Shape atlas layer for the (placeholder) sprite. */
-  readonly sprite: number;
+  /** The amulet's look: a procedural glow `Shape` (number) or a `SpriteHandle` for a
+   *  custom image. Render-only (not hashed). */
+  readonly sprite: BulletSprite;
   /** Linear RGB tint. */
   readonly color: readonly [number, number, number];
   /** Half-arc the amulets launch into, off straight-up, radians. */
@@ -249,6 +252,7 @@ export function fireShots(
   input: InputFrame,
   cfg: ShotConfig,
   tick: number,
+  resolveSprite: (s: BulletSprite) => number,
 ): boolean {
   if (!input.shoot) return false;
   if (player.state !== PlayerState.Alive && player.state !== PlayerState.Respawning) return false;
@@ -260,6 +264,9 @@ export function fireShots(
     const streams = Math.min(cfg.maxStreams, cfg.baseStreams + Math.floor(player.power / cfg.powerPerStream));
     const halfArc = (player.focused ? cfg.focusSpreadFrac : 1) * cfg.spread;
     const damage = player.focused ? (cfg.focusDamage ?? cfg.damage) : cfg.damage;
+    // Resolve the look to a render byte (glow shape or a custom-image table index).
+    // Render-only, so this never perturbs the zero-RNG firing determinism.
+    const sprite = resolveSprite(cfg.sprite);
     const r = cfg.color[0];
     const g = cfg.color[1];
     const b = cfg.color[2];
@@ -275,7 +282,7 @@ export function fireShots(
         damage,
         radius: cfg.radius,
         homing: 0,
-        sprite: cfg.sprite,
+        sprite,
         r,
         g,
         b,
@@ -286,6 +293,7 @@ export function fireShots(
 
   const hc = cfg.homing;
   if (hc && !player.focused && tick % hc.fireInterval === 0) {
+    const sprite = resolveSprite(hc.sprite);
     const r = hc.color[0];
     const g = hc.color[1];
     const b = hc.color[2];
@@ -300,7 +308,7 @@ export function fireShots(
         damage: hc.damage,
         radius: hc.radius,
         homing: hc.turnRate,
-        sprite: hc.sprite,
+        sprite,
         r,
         g,
         b,

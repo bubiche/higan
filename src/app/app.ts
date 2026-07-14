@@ -93,10 +93,17 @@ export function runGame(def: GameDefinition): AppHandle {
   const input = createShellInput(() => save.settings.keybinds);
   const bullets = createBulletRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, SIM_CAPACITY);
   const lasers = createLaserRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, LASER_CAPACITY);
-  // The alpha sprite pass (enemies/items/player). Created once, sized to the larger of the
-  // enemy/item pools (the most instances one drawInstances call ever packs). Its atlas loads
-  // asynchronously below from the game's sprite manifest; drawing no-ops until it has.
-  const sprites = createSpriteRenderer(gl, PLAYFIELD_W, PLAYFIELD_H, Math.max(ENEMY_CAPACITY, ITEM_CAPACITY));
+  // The alpha sprite pass (enemies/items/player, and custom-image bullets/shots). Created
+  // once, sized to the largest instance stream any single drawInstances call may pack. Custom
+  // IMAGE bullets/shots route through this pass too, so it must cover the bullet/shot pools —
+  // not just the enemy/item pools — or a large image-bullet wave would overflow its buffer.
+  // Its atlas loads asynchronously below from the game's sprite manifest; drawing no-ops until it has.
+  const sprites = createSpriteRenderer(
+    gl,
+    PLAYFIELD_W,
+    PLAYFIELD_H,
+    Math.max(ENEMY_CAPACITY, ITEM_CAPACITY, SIM_CAPACITY),
+  );
   // Build the sprite atlas from the initial def (engine defaults are always included, so a
   // game with no sprite manifest still renders default enemy/item/player art). Fire-and-
   // forget like audio preload — non-throwing (a failed image logs + leaves a blank cell).

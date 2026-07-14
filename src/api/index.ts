@@ -84,6 +84,7 @@ export type {
   SpriteHandle,
   SpriteManifest,
   BackgroundLayer,
+  BulletSprite,
 } from "./sprites";
 
 export {

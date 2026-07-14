@@ -27,6 +27,7 @@ import { Rng, mixSeed } from "./prng";
 import { hashFloat32Arrays } from "./hash";
 import { SfxId, type SfxEvent } from "./events";
 import { createBulletSystem, type BulletSystem } from "../bullets/system";
+import { createBulletImageTable } from "../bullets/sprite-table";
 import { createLaserSystem, type LaserSystem } from "../touhou/laser";
 import { createEnemySystem, stepEnemyShotCollision, type EnemySystem, type Enemy } from "../touhou/enemy";
 import {
@@ -47,6 +48,7 @@ import {
 import { startBoss, type BossDeps, type PhaseSpec, type BossScript } from "../api/boss";
 import { startStage, type StageDeps, type EnemySpec, type BossVisual, type Dialogue } from "../api/stage";
 import type { StageDef, CharacterDef } from "../api/game";
+import type { SpriteHandle } from "../api/sprites";
 import type { RunConfig } from "../api/config";
 import { PLAYFIELD_W, PLAYFIELD_H } from "./playfield";
 import type { InputFrame } from "./input";
@@ -158,6 +160,11 @@ export interface Simulation {
   readonly lasers: LaserSystem;
   /** The player-shot pool (the offensive bullets the player fires) the renderer draws. */
   readonly shots: ShotSystem;
+  /** Custom bullet/shot images interned this run, indexed by table id (a `sprite` byte's
+   *  low 7 bits when its `IMAGE_FLAG` bit is set). Render-only — the renderer reads each
+   *  handle's atlas layer to draw image bullets/shots. Empty for a game using only glow
+   *  shapes. */
+  readonly bulletImages: readonly SpriteHandle[];
   /** The enemy pool (hittable foes that fire their own danmaku) the renderer draws. */
   readonly enemies: EnemySystem;
   /** The item pool (pickups enemies drop) the renderer draws. */
@@ -240,6 +247,11 @@ export function createStageSim(
     ITEM_CAPACITY,
     itemCfg,
   );
+  // Maps a bullet/shot's look selector (a glow `Shape` number or a custom-image
+  // `SpriteHandle`) to the render byte the store/shot pool carry. Render-only — the
+  // byte is not hashed — so interning here can never perturb a trajectory (§firing
+  // consumes zero RNG). Lives for the sim's lifetime; a fresh run builds a fresh sim.
+  const bulletImages = createBulletImageTable();
 
   // Spawn / respawn position — the bottom-centre start. A constant (not hashed),
   // passed to the lifecycle step so a respawn returns the player here.
@@ -717,7 +729,7 @@ export function createStageSim(
     //     player never perturbs any danmaku stream, §c). Shots spawn at the just-
     //     moved player position and advance with the bullets below. One SFX per volley
     //     tick regardless of stream count.
-    if (fireShots(shots, player, input, shot, tick)) emit(SfxId.Shoot, player.x);
+    if (fireShots(shots, player, input, shot, tick, bulletImages.resolve)) emit(SfxId.Shoot, player.x);
 
     // 3. Scene. The stage root, the boss (once spawned), and every child emitter all
     //    advance through the same scheduler array. The stage drives the scene; the
@@ -1120,6 +1132,9 @@ export function createStageSim(
     system,
     lasers,
     shots,
+    get bulletImages() {
+      return bulletImages.handles;
+    },
     enemies,
     items,
     player,

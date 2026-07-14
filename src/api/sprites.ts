@@ -93,6 +93,16 @@ export interface SpriteHandle {
  * you reference inline are the ones that carry the resolved layer (shared by reference —
  * no registry, no import-order fragility, no string lookup).
  */
+/**
+ * What a bullet or player shot looks like: either a procedural glow `Shape` (a number
+ * from the engine's fixed `Shape` set) OR a `SpriteHandle` for a custom image. A number
+ * renders on the additive-glow atlas (tinted by the bullet's `color`); a handle renders
+ * as full-colour art on the straight-alpha sprite pass. A custom bullet/shot image must
+ * be drawn pointing +x — the renderer rotates the quad by the bullet's heading, exactly
+ * as the procedural rice/kunai shapes are authored.
+ */
+export type BulletSprite = number | SpriteHandle;
+
 export function defineSprites<K extends string>(defs: Record<K, SpriteDef>): Record<K, SpriteHandle> {
   const out = {} as Record<K, SpriteHandle>;
   for (const id in defs) {

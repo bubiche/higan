@@ -278,6 +278,34 @@ const shorekeeperBody: ImageSource = {
   },
 };
 
+/** A custom full-colour player shot: an ofuda talisman — a crimson card with a white
+ *  border and a gold sigil, drawn pointing +x so the renderer rotates it to point along
+ *  travel (straight up). Unlike the glow `Shape` shots (a white mask tinted by the shot
+ *  colour), this carries its OWN colours: fire it with a white tint to see the art untinted. */
+const shotAmulet: ImageSource = {
+  kind: "procedural",
+  draw(ctx, size) {
+    const c = size / 2;
+    const w = size * 0.34; // half-length along +x (travel), h = across
+    const h = size * 0.2;
+    ctx.save();
+    ctx.translate(c, c);
+    // White border card.
+    ctx.fillStyle = "rgba(250,250,255,1)";
+    ctx.fillRect(-w, -h, w * 2, h * 2);
+    // Crimson face inset.
+    ctx.fillStyle = "rgba(210,40,55,1)";
+    ctx.fillRect(-w * 0.78, -h * 0.66, w * 1.56, h * 1.32);
+    // Gold sigil: a short bar down the card's spine + a dot.
+    ctx.fillStyle = "rgba(245,205,90,1)";
+    ctx.fillRect(-w * 0.5, -h * 0.14, w, h * 0.28);
+    ctx.beginPath();
+    ctx.arc(w * 0.5, 0, h * 0.26, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  },
+};
+
 /** The player craft: a small upward arrowhead with a cockpit dot (static). */
 const player: ImageSource = {
   kind: "procedural",
@@ -308,6 +336,8 @@ export const demoSprites = defineSprites({
   fairy: { source: fairy, frames: 4, fps: 10 }, // popcorn + sweepers (tinted per enemy)
   sentinel: { source: sentinel }, // the tankier turrets
   player: { source: player },
+  shotAmulet: { source: shotAmulet }, // a full-colour custom-image player shot
+
   // Boss bodies — drawn at the boss origin while an encounter runs (passed to
   // `ctx.boss(script, { sprite, color, radius })`). Like the enemies, drawn white so the
   // per-encounter tint colours them; the shared `midbossBody` is reused across stages with
