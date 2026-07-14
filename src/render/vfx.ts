@@ -279,7 +279,7 @@ export function createVfx(gl: WebGL2RenderingContext): VfxLayer {
             flash(1.0, 0.95, 0.75, 0.36, 0.55);
             break;
           default:
-            break; // Shoot / Extend / UI — no VFX here
+            break; // Shoot / EnemyShoot / Laser / Extend / UI — no VFX here
         }
       }
     },

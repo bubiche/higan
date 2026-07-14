@@ -35,6 +35,14 @@ export enum SfxId {
   Pichuun,
   Cancel,
   PlayerDeathBomb,
+  /** An enemy or boss FIRES bullets. Raised once per emitter fire-call (fire/ring/fan/
+   *  aimed/spawnGroup), NOT per bullet — so a dense ring is one cue, not hundreds. Every
+   *  danmaku emitter shares this id (enemies and bosses alike), and the audio layer's
+   *  per-id throttle caps the rapid-fire texture. `Shoot` is the PLAYER's own shot. */
+  EnemyShoot,
+  /** A laser beam FIRES — raised at the telegraph→fire transition (not at spawn), so the
+   *  cue lands with the beam going live rather than when its warning line appears. */
+  Laser,
   // UI — fired directly by screens, never by the sim.
   MenuMove,
   MenuConfirm,

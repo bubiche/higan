@@ -97,12 +97,12 @@ function sfx(durationSec: number, render: (ctx: OfflineAudioContext) => void): S
 // map; every id it omits uses the default here, so a game that authors zero SFX still
 // has the full set.
 //
-// MIX (relative loudness): the RAPID-FIRE sounds — Shoot (every few ticks), Graze,
-// EnemyHit, ItemCollect — are kept deliberately quiet so a steady stream of them sits
-// UNDER the BGM (the BGM's own voices are pre-attenuated ~2× by `bgmLoop`'s internal
-// level, so an un-attenuated SFX at the same nominal gain reads much louder). The
-// PUNCTUATION sounds (Bomb, EnemyDeath, spells, Pichuun, Extend) stay prominent — they
-// fire rarely and are meant to be heard over everything.
+// MIX (relative loudness): the RAPID-FIRE sounds — Shoot (every few ticks), EnemyShoot
+// (every boss ring/fan), Graze, EnemyHit, ItemCollect — are kept deliberately quiet so a
+// steady stream of them sits UNDER the BGM (the BGM's own voices are pre-attenuated ~2× by
+// `bgmLoop`'s internal level, so an un-attenuated SFX at the same nominal gain reads much
+// louder). The PUNCTUATION sounds (Bomb, EnemyDeath, Laser, spells, Pichuun, Extend) stay
+// prominent — they fire rarely and are meant to be heard over everything.
 export const DEFAULT_SFX: Record<SfxId, SynthGen> = {
   // gameplay
   [SfxId.Shoot]: sfx(0.12, (c) => osc(c, c.destination, { at: 0, dur: 0.08, freq: 880, freqEnd: 440, type: "square", gain: 0.06 })),
@@ -146,6 +146,18 @@ export const DEFAULT_SFX: Record<SfxId, SynthGen> = {
     // softer/brighter cousin of Bomb — a defensive whoosh
     osc(c, c.destination, { at: 0, dur: 0.5, freq: 240, freqEnd: 60, type: "triangle", gain: 0.28, attack: 0.02 });
     noise(c, c.destination, { at: 0, dur: 0.5, gain: 0.24, cutoff: 2600 });
+  }),
+  [SfxId.EnemyShoot]: sfx(0.1, (c) => {
+    // A soft, low "pon" — rapid-fire, so quiet and rounded (sine), and pitched well below the
+    // player's brighter 880→440 square `Shoot` so the two never blur together in a dense fight.
+    osc(c, c.destination, { at: 0, dur: 0.07, freq: 320, freqEnd: 200, type: "sine", gain: 0.05 });
+  }),
+  [SfxId.Laser]: sfx(0.34, (c) => {
+    // A beam "vwoom": a sustained sawtooth body sweeping down for weight, a bright detuned top
+    // for the zap, and a short filtered-noise transient at the head. Prominent — beams fire rarely.
+    osc(c, c.destination, { at: 0, dur: 0.3, freq: 260, freqEnd: 150, type: "sawtooth", gain: 0.2, attack: 0.008 });
+    osc(c, c.destination, { at: 0, dur: 0.28, freq: 1240, freqEnd: 720, type: "square", gain: 0.06 });
+    noise(c, c.destination, { at: 0, dur: 0.08, gain: 0.16, cutoff: 3600, highpass: true });
   }),
   // UI
   [SfxId.MenuMove]: sfx(0.06, (c) => osc(c, c.destination, { at: 0, dur: 0.04, freq: 660, type: "square", gain: 0.1 })),

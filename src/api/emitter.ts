@@ -210,6 +210,16 @@ export interface EmitterDeps {
    * one randomness source is no longer global, it flows down the spawn tree.
    */
   spawnChild(script: EmitterScript, x: number, y: number, group: number, rng: Rng): void;
+  /**
+   * Presentation-only fire notice: called once per bullet-spawning call
+   * (`fire`/`ring`/`fan`/`aimed`/`spawnGroup`), NOT per bullet, with the emitter's x for
+   * stereo pan. The sim binds this to an "enemy shoot" SFX event; it consumes zero RNG and
+   * touches no hashed state, so it can never perturb a replay (same discipline as the sim's
+   * own `emit`). Optional so a deps-builder that wants no fire cue (headless/showcase) just
+   * omits it. `laser` does NOT call this — the beam's cue is raised at its fire transition,
+   * which only the sim (owning the laser lifecycle) can time.
+   */
+  notifyFire?: (x: number) => void;
 }
 
 /** Build a retargetable handle over the captured `(slot, gen)` pairs. */
@@ -304,6 +314,7 @@ function makeContext(deps: EmitterDeps, group: number, rng: Rng, pos?: Vec2): Em
       deps.spawnChild(script, ctx.x, ctx.y, ctx.group, rng);
     },
     spawnGroup(o) {
+      deps.notifyFire?.(ctx.x);
       const x = o.x ?? ctx.x;
       const y = o.y ?? ctx.y;
       const radius = o.radius ?? DEFAULT_RADIUS;
@@ -324,6 +335,7 @@ function makeContext(deps: EmitterDeps, group: number, rng: Rng, pos?: Vec2): Em
       return makeBulletGroup(system, slots, gens);
     },
     fire(o) {
+      deps.notifyFire?.(ctx.x);
       emit(
         o.x ?? ctx.x,
         o.y ?? ctx.y,
@@ -336,6 +348,7 @@ function makeContext(deps: EmitterDeps, group: number, rng: Rng, pos?: Vec2): Em
       );
     },
     ring(o) {
+      deps.notifyFire?.(ctx.x);
       const x = o.x ?? ctx.x;
       const y = o.y ?? ctx.y;
       const radius = o.radius ?? DEFAULT_RADIUS;
@@ -349,6 +362,7 @@ function makeContext(deps: EmitterDeps, group: number, rng: Rng, pos?: Vec2): Em
       }
     },
     fan(o) {
+      deps.notifyFire?.(ctx.x);
       const x = o.x ?? ctx.x;
       const y = o.y ?? ctx.y;
       const radius = o.radius ?? DEFAULT_RADIUS;
@@ -366,6 +380,7 @@ function makeContext(deps: EmitterDeps, group: number, rng: Rng, pos?: Vec2): Em
       }
     },
     aimed(o) {
+      deps.notifyFire?.(ctx.x);
       const x = o.x ?? ctx.x;
       const y = o.y ?? ctx.y;
       const aim = atan2(target.y - y, target.x - x);

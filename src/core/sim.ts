@@ -314,6 +314,10 @@ export function createStageSim(
     spawnChild(script, cx, cy, group, rng) {
       running.push(startEmitter(script, cx, cy, tick + 1, deps, rng, group));
     },
+    // Presentation only: every danmaku emitter (enemies AND bosses) raises one EnemyShoot
+    // per fire-call. `x` is the emitter position for stereo pan. Zero RNG, not hashed — the
+    // audio layer's per-id throttle turns the stream into a shot texture, not a buzz.
+    notifyFire: (x) => emit(SfxId.EnemyShoot, x),
   };
 
   // Boss/spell-card state + the deferred boss root. The stage spawns the boss partway
@@ -825,6 +829,14 @@ export function createStageSim(
     }
     // 5. Advance beams (age the telegraph→fire→fade lifecycle, sweep, despawn).
     lasers.update(dt);
+    // 5a. Laser fire cue (presentation only). `update` just incremented every beam's age, so
+    //     the tick a beam goes live is uniquely `age === telegraph` — true for exactly one
+    //     tick per beam. One Laser event per beam at that transition; `l.x`/`l.y` place the
+    //     pan + any spark at the beam origin. Zero RNG, not hashed. (A telegraph-0 beam is
+    //     born fired and pre-dates this scan, so it wouldn't cue — every beam telegraphs.)
+    for (const l of lasers.lasers) {
+      if (l.alive && l.age === l.telegraph) emit(SfxId.Laser, l.x, undefined, l.y);
+    }
     // 6. Player-vs-field pass — graze (a write) + hit detection (read-only over
     //    bullets and beams). Consumes no randomness. Score the graze delta this tick
     //    (graze→score) from the count change `stepCollision` made — no scoring inside
