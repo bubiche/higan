@@ -79,11 +79,18 @@ export function createHud(panel: HTMLElement): Hud {
         lines.push("");
         lines.push("── boss ──");
         if (boss.active) {
-          const ratio = boss.hpMax > 0 ? boss.hp / boss.hpMax : 0;
-          lines.push(`spell   ${boss.name}${boss.isSpell ? "  ✦" : ""}`);
-          lines.push(`hp      [${gauge(ratio)}] ${Math.ceil(boss.hp)}`);
+          // A survival phase is invulnerable: its gauge is locked full (hp never drains) and the
+          // objective is to OUTLAST the timer, so the capture line reads "survive" not "shoot".
+          const ratio = boss.survival ? 1 : boss.hpMax > 0 ? boss.hp / boss.hpMax : 0;
+          lines.push(`spell   ${boss.name}${boss.isSpell ? "  ✦" : ""}${boss.survival ? "  (survival)" : ""}`);
+          lines.push(`hp      [${gauge(ratio)}] ${boss.survival ? "∞" : Math.ceil(boss.hp)}`);
           lines.push(`timer   ${(boss.timeLeft / 60).toFixed(1)}s`);
-          lines.push(`capture ${player.spellCapturedNoMiss ? "intact (shoot to capture)" : "missed"}`);
+          const captureHint = player.spellCapturedNoMiss
+            ? boss.survival
+              ? "intact (survive to capture)"
+              : "intact (shoot to capture)"
+            : "missed";
+          lines.push(`capture ${captureHint}`);
         } else {
           lines.push("(between phases)");
         }

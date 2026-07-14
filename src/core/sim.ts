@@ -121,6 +121,10 @@ export interface BossState {
   timeLimit: number;
   /** This phase is a spell card (vs an ordinary phase). */
   isSpell: boolean;
+  /** Endurance/survival phase: the boss is invulnerable (no shot/bomb damage) and the only
+   *  way out is the timer — outlasting it no-miss is the capture. Drives the HP-drain,
+   *  homing, and bomb-damage gates below, and the HUD's locked-full gauge framing. */
+  survival: boolean;
 }
 
 /**
@@ -332,6 +336,7 @@ export function createStageSim(
     timeLeft: 0,
     timeLimit: 0,
     isSpell: false,
+    survival: false,
   };
   // Render-only boss body (see BossBody). Position is the static origin; the sprite/tint/
   // radius are (re)stamped by `spawnBoss` from each encounter's `BossVisual`. Bodiless
@@ -386,6 +391,10 @@ export function createStageSim(
       bossState.timeLimit = spec.timeLimit;
       bossState.timeLeft = spec.timeLimit;
       bossState.isSpell = spec.isSpell ?? false;
+      // Endurance flag: gates the HP-drain / homing / bomb-damage branches below (the boss is
+      // invulnerable) and the HUD's locked-full gauge. `hp` is still published above so the
+      // gauge has a max; it simply never drains.
+      bossState.survival = spec.survival ?? false;
       // Capture tracking resets at phase start; a hit or bomb clears it (player.ts).
       player.spellCapturedNoMiss = true;
       // SFX (presentation): announce a spell card. Zero RNG, not hashed.
@@ -397,7 +406,12 @@ export function createStageSim(
       // timed-out or ordinary phase does not. Gameplay (it can trigger an extend) →
       // hashed, zero RNG. The declining-with-time bonus lives in score.ts.
       if (captured && bossState.isSpell) {
-        awardSpellCapture(player, bossState.timeLeft, bossState.timeLimit, scoring);
+        // A survival capture pays the FULL time bonus: outlasting the whole timer is the feat,
+        // so it shouldn't earn the near-zero at-timeout bonus an ordinary late capture would
+        // (its `timeLeft` is 0 at the timeout end). Pass `timeLimit` as the remaining time so
+        // `elapsed` reads 0. An ordinary HP-capture keeps its real (declining-with-time) bonus.
+        const effTimeLeft = bossState.survival ? bossState.timeLimit : bossState.timeLeft;
+        awardSpellCapture(player, effTimeLeft, bossState.timeLimit, scoring);
         // SFX (presentation): the capture jingle. Shares this already-gated branch with
         // the (hashed) score award, but `emit` only pushes — zero RNG, not hashed — so
         // it cannot perturb the hash; the pinned baselines confirm it.
@@ -760,7 +774,8 @@ export function createStageSim(
     //     matches the gate `stepShotCollision` below uses for the boss itself.
     homingTargets.length = 0;
     for (const e of enemies.enemies) if (e.alive) homingTargets.push(e);
-    if (bossRoot && bossState.active && bossState.hp > 0 && player.state !== PlayerState.GameOver) {
+    // Exclude a SURVIVAL boss: it can't be damaged, so homing amulets shouldn't chase it.
+    if (bossRoot && bossState.active && !bossState.survival && bossState.hp > 0 && player.state !== PlayerState.GameOver) {
       homingTargets.push({ x: bossPos.x, y: bossPos.y });
     }
     stepShotHoming(shots, homingTargets, dt);
@@ -773,7 +788,9 @@ export function createStageSim(
     const { hits: enemyHits, x: hitX, y: hitY } = stepEnemyShotCollision(enemies, shots);
     // Batched: one event/tick, at the last impact point (pan + hit-spark). Presentation only.
     if (enemyHits > 0) emit(SfxId.EnemyHit, hitX, enemyHits, hitY);
-    if (bossRoot && bossState.active && bossState.hp > 0 && player.state !== PlayerState.GameOver) {
+    // A SURVIVAL boss takes no shot damage — shots pass over it (not consumed against it),
+    // so its hp never drains and the phase can only end on the timer (api/boss.ts).
+    if (bossRoot && bossState.active && !bossState.survival && bossState.hp > 0 && player.state !== PlayerState.GameOver) {
       const dmg = stepShotCollision(shots, {
         x: bossPos.x,
         y: bossPos.y,
@@ -878,6 +895,7 @@ export function createStageSim(
         bomb.bossDamage > 0 &&
         bossRoot &&
         bossState.active &&
+        !bossState.survival && // a survival boss is invulnerable — a bomb dents nothing (like 4b)
         bossState.hp > 0 &&
         player.state !== PlayerState.GameOver
       ) {

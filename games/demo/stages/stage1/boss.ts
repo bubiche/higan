@@ -80,7 +80,31 @@ const huntingSnap: EmitterScript = function* (ctx) {
   }
 };
 
-/** Phase 3 — "Beam Rake": sweeping straight beams with homing fill bullets between
+/** Phase 3 — "Aegis Vigil": an ENDURANCE/survival spell. The boss is invulnerable, so shots
+ *  pass through — the only way through is to OUTLAST the timer. Two counter-rotating spoke
+ *  arms plus a slow expanding safety-lane ring; deterministic (pure of tick, no rng), so it
+ *  survives replay/hot-reload like every other pattern. */
+const aegisVigil: EmitterScript = function* (ctx) {
+  // A slow expanding ring on its own cadence — the "breathing" backdrop the spokes cut across.
+  ctx.sub(function* (c) {
+    let base = 0;
+    while (true) {
+      c.ring({ count: scale(c.difficulty, 20, 2), speed: 70, angle: base, radius: 4, color: VIOLET, sprite: Shape.Orb });
+      base += 0.13;
+      yield 34;
+    }
+  });
+  let a = 0;
+  while (true) {
+    // Two counter-rotating arms of curving stars — a rotating maze to weave, no way to shorten it.
+    ctx.fire({ speed: 130, angle: a, radius: 4, color: CYAN, sprite: Shape.Star, behavior: curve(1.1) });
+    ctx.fire({ speed: 130, angle: -a, radius: 4, color: MAGENTA, sprite: Shape.Star, behavior: curve(-1.1) });
+    a += 0.27;
+    yield 4;
+  }
+};
+
+/** Phase 4 — "Beam Rake": sweeping straight beams with homing fill bullets between
  *  volleys; a finale that uses lasers + an accelerating aimed punctuation. */
 const beamRake: EmitterScript = function* (ctx) {
   let dir = 1;
@@ -108,11 +132,15 @@ const beamRake: EmitterScript = function* (ctx) {
   }
 };
 
-/** The demo boss: four ordered phases (one opening + three spell cards). */
+/** The demo boss: five ordered phases (one opening + four spell cards, one of them an
+ *  endurance/survival spell). */
 export const DEMO_BOSS: BossScript = function* (b) {
   yield* b.phase({ name: "Opening", hp: 700, timeLimit: 900 }, opening);
   yield* b.phase({ name: "Veil Sign 「Spiral Veil」", hp: 900, timeLimit: 1200, isSpell: true }, spiralVeil);
   yield* b.phase({ name: "Hunt Sign 「Hunting Snap」", hp: 900, timeLimit: 1200, isSpell: true }, huntingSnap);
+  // An endurance spell: `survival: true` makes the boss invulnerable, so `hp` is nominal (the
+  // gauge shows it locked full) and the phase is won by outlasting the ~10s timer no-miss.
+  yield* b.phase({ name: "Guard Sign 「Aegis Vigil」", hp: 1, timeLimit: 600, isSpell: true, survival: true }, aegisVigil);
   yield* b.phase({ name: "Light Sign 「Beam Rake」", hp: 1100, timeLimit: 1400, isSpell: true }, beamRake);
 };
 

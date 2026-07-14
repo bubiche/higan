@@ -26,6 +26,13 @@ export interface PhaseSpec {
   readonly timeLimit: number;
   /** Spell card vs ordinary phase — affects HUD framing and the capture framing. */
   readonly isSpell?: boolean;
+  /**
+   * Endurance ("survival") spell: the boss cannot be damaged — player shots pass through,
+   * homing ignores it, and a bomb dents nothing. The phase can only end by the timer, and
+   * OUTLASTING it with no miss is the CAPTURE (the inverse of an ordinary phase, where a
+   * timeout is a failed capture). Implies a spell card; pair with `isSpell: true` for the
+   * spell HUD framing. Default false → an ordinary damageable phase. */
+  readonly survival?: boolean;
 }
 
 export interface PhaseResult {
@@ -120,14 +127,20 @@ function* runPhase(
   // BEFORE this tick's sim-side drain means a phase ends one tick after HP truly
   // hits 0 — an imperceptible, fully deterministic lag.
   while (true) {
+    // HP-drain end. A survival phase never drains hp (the sim gates the damage on the same
+    // flag), so this branch is unreachable for it — HP-capture is the ordinary path only.
     if (deps.hp() <= 0) {
       const captured = deps.captured();
       deps.endPhase(group, captured);
       return { captured, timedOut: false };
     }
+    // Timeout end. For a SURVIVAL spell, outlasting the timer with no miss IS the capture
+    // (endurance); for an ordinary phase, a timeout is a failed capture (the pre-existing
+    // rule). `deps.captured()` is the no-miss tracker either way.
     if (deps.timeLeft() <= 0) {
-      deps.endPhase(group, false);
-      return { captured: false, timedOut: true };
+      const captured = spec.survival === true && deps.captured();
+      deps.endPhase(group, captured);
+      return { captured, timedOut: true };
     }
     yield 1;
   }
