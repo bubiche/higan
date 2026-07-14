@@ -55,9 +55,10 @@ if (import.meta.env.DEV) {
   // the bosses, so every phase TIMES OUT here rather than being HP-captured — fine, the
   // determinism coverage of each is identical either way (both runPhase exits are
   // deterministic), and the DEFEAT-then-continue path (killing a boss to resume) is
-  // proven separately. The scene spans ~7770 ticks (midboss + waves precede the boss),
-  // so the window is sized past it.
-  const GUARD_TICKS = 8000;
+  // proven separately. The scene spans ~8370 ticks (midboss + waves precede the boss, and
+  // the boss now includes a 600-tick endurance/survival phase that always runs full), so the
+  // window is sized past it to keep the stage-RETURN (`stageComplete`) tail under the net.
+  const GUARD_TICKS = 8600;
   for (let i = 0; i < GUARD_TICKS; i++) {
     scripted.push({
       dx: (i >> 3) % 2 ? 1 : -1,
