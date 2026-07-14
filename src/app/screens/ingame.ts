@@ -18,7 +18,7 @@ import { createDialogueScreen } from "./dialogue";
 import { createContinueScreen } from "./continue";
 import { createHud, type Hud } from "../hud";
 import { createCutins, type CutinLayer, type CutinIdentity } from "../cutins";
-import { createStageSim, type Simulation, SHOT_CAPACITY, ENEMY_CAPACITY, ITEM_CAPACITY } from "../../core/sim";
+import { createStageSim, type Simulation, SHOT_CAPACITY, ENEMY_CAPACITY, ITEM_CAPACITY, SIM_CAPACITY } from "../../core/sim";
 import { SfxId } from "../../core/events";
 import { mixSeed } from "../../core/prng";
 import { createSimDriver, type SimDriver } from "../../core/runtime";
@@ -130,6 +130,10 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
   const shotInstances = new Float32Array(SHOT_CAPACITY * INSTANCE_FLOATS);
   // Custom-image shots split off onto the straight-alpha sprite pass; same pool cap.
   const shotImageInstances = new Float32Array(SHOT_CAPACITY * INSTANCE_FLOATS);
+  // Custom-image bullets split off the danmaku onto the straight-alpha sprite pass; sized
+  // to the FULL bullet pool (a whole wave can be images), the same cap the sprite renderer
+  // was widened to accept.
+  const bulletImageInstances = new Float32Array(SIM_CAPACITY * INSTANCE_FLOATS);
   // Reused scratch for the enemy instance stream (enemies reuse the bullet program
   // too — Option B, no separate shader). Sized to the pool cap × the instance stride.
   const enemyInstances = new Float32Array(ENEMY_CAPACITY * INSTANCE_FLOATS);
@@ -638,7 +642,25 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
         playerInstance[7] = playerLayer;
         sprites.drawInstances(playerInstance, 1);
       }
-      const drawn = bullets.draw(system.store, system.alive, system.highWater, overlays);
+      // Danmaku, split by look like the player shots: glow `Shape`s draw here (additive, plus
+      // the overlays on top); custom-IMAGE bullets pack into `bulletImageInstances` and draw on
+      // the straight-alpha sprite pass just after, so they read as solid ON TOP of the glow haze
+      // (the Touhou talisman/kunai look). The image lookup resolves an interned handle's current
+      // atlas layer (or -1 → the marshaller falls back to a glow orb), same as the shot path.
+      const bulletImageLayer = (tableId: number): number => {
+        const handle = sim.bulletImages[tableId];
+        return sprites.layerForBase(handle ? handle.layer : -1, clock);
+      };
+      const bulletCounts = bullets.draw(
+        system.store,
+        system.alive,
+        system.highWater,
+        bulletImageInstances,
+        bulletImageLayer,
+        overlays,
+      );
+      sprites.drawInstances(bulletImageInstances, bulletCounts.image);
+      const drawn = bulletCounts.glow + bulletCounts.image;
       // VFX on top of the danmaku: additive glow sparks (reusing the bullet program), then the
       // full-field flash last of all. Both are no-ops when nothing is live. The shake is applied
       // by the shell as a viewport offset (it must move every layer, not just this screen).

@@ -23,7 +23,7 @@
 
 import { startAnimationLoop } from "../core/loop";
 import { createGL } from "../render/gl";
-import { createBulletRenderer } from "../render/bullets";
+import { createBulletRenderer, INSTANCE_FLOATS } from "../render/bullets";
 import { createBulletSystem } from "../bullets/system";
 import { createLaserSystem } from "../touhou/laser";
 import {
@@ -191,6 +191,14 @@ let acc = 0;
 let drawn = 0;
 let hudThrottle = 0;
 
+// The bench fires only glow-`Shape` bullets, so the custom-image split never routes here:
+// the image-layer resolver always returns -1 (never "ready"), so `marshalBullets` writes
+// nothing to this buffer. It exists to exercise the SAME partition path the game runs — the
+// per-bullet high-bit test is the one thing that could regress the 50k hot loop, so the gate
+// must measure it, not a bypass.
+const benchImageInstances = new Float32Array(MAX_BULLETS * INSTANCE_FLOATS);
+const noImageLayer = (): number => -1;
+
 startAnimationLoop((dtSeconds) => {
   const t0 = performance.now();
   acc += dtSeconds;
@@ -202,7 +210,14 @@ startAnimationLoop((dtSeconds) => {
   }
   gl.clearColor(0.008, 0.012, 0.04, 1);
   gl.clear(gl.COLOR_BUFFER_BIT);
-  drawn = renderer.draw(system.store, system.alive, system.highWater);
+  const counts = renderer.draw(
+    system.store,
+    system.alive,
+    system.highWater,
+    benchImageInstances,
+    noImageLayer,
+  );
+  drawn = counts.glow + counts.image;
   const cpu = performance.now() - t0;
 
   // dtSeconds is 0 on an anomalous frame (tab resume / long stall); drop it from

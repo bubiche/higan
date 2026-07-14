@@ -323,6 +323,10 @@ export function createStageSim(
     lasers,
     target,
     difficulty,
+    // Resolve an emitter's `sprite` (glow shape or custom image handle) to the render byte.
+    // Shared with the player-shot path (fireShots) so both intern into the one sim-local
+    // image table; render-only, never hashed.
+    resolveSprite: bulletImages.resolve,
     // A child spawned this tick is appended and first resumes NEXT tick (tick + 1):
     // no same-tick re-entry, and `stepRunning` captures the length before iterating
     // so the new entry is not visited until then. The caller passes its own stream

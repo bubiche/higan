@@ -306,6 +306,34 @@ const shotAmulet: ImageSource = {
   },
 };
 
+/** An enemy danmaku bullet drawn as a solid talisman card rather than a glow blob — the
+ *  reference custom-IMAGE bullet. Indigo face, gold border + sigil; authored pointing +x so
+ *  it rotates to lie along travel. Deliberately sharp-edged and multi-colour so it reads as
+ *  a distinct sprite over the additive glow haze (the Touhou fuda look). */
+const talismanBullet: ImageSource = {
+  kind: "procedural",
+  draw(ctx, size) {
+    const c = size / 2;
+    const w = size * 0.42; // half-length along +x (travel)
+    const h = size * 0.26; // half-width across
+    ctx.save();
+    ctx.translate(c, c);
+    // Gold border card.
+    ctx.fillStyle = "rgba(240,200,95,1)";
+    ctx.fillRect(-w, -h, w * 2, h * 2);
+    // Indigo face inset.
+    ctx.fillStyle = "rgba(60,45,150,1)";
+    ctx.fillRect(-w * 0.8, -h * 0.68, w * 1.6, h * 1.36);
+    // Pale sigil: a spine bar + a nub near the leading edge.
+    ctx.fillStyle = "rgba(230,235,255,1)";
+    ctx.fillRect(-w * 0.55, -h * 0.16, w * 1.1, h * 0.32);
+    ctx.beginPath();
+    ctx.arc(w * 0.55, 0, h * 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  },
+};
+
 /** The player craft: a small upward arrowhead with a cockpit dot (static). */
 const player: ImageSource = {
   kind: "procedural",
@@ -337,6 +365,7 @@ export const demoSprites = defineSprites({
   sentinel: { source: sentinel }, // the tankier turrets
   player: { source: player },
   shotAmulet: { source: shotAmulet }, // a full-colour custom-image player shot
+  talismanBullet: { source: talismanBullet }, // a full-colour custom-image enemy bullet
 
   // Boss bodies — drawn at the boss origin while an encounter runs (passed to
   // `ctx.boss(script, { sprite, color, radius })`). Like the enemies, drawn white so the

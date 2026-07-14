@@ -16,39 +16,92 @@
 
 import { createProgram, createShapeAtlas } from "./gl";
 import type { BulletStore } from "../bullets/store";
+import { IMAGE_FLAG, IMAGE_INDEX_MASK } from "../bullets/sprite-table";
+import { Shape } from "./shapes";
 
 /** Floats written per bullet instance: x, y, scale, angle, r, g, b, layer. */
 export const INSTANCE_FLOATS = 8;
 
+/** Instance counts written to each pass's buffer by `marshalBullets`. */
+export interface BulletMarshalResult {
+  /** Instances written to the additive glow buffer. */
+  glow: number;
+  /** Instances written to the straight-alpha custom-image buffer. */
+  image: number;
+}
+
 /**
- * Pack the live bullets in `[0, highWater)` into `out` as interleaved instance
- * data, skipping free-list holes. Returns the number of instances written; the
- * caller draws exactly that many. `out` must hold at least `liveCount *
- * INSTANCE_FLOATS` floats.
+ * Pack the live bullets in `[0, highWater)` into two interleaved instance buffers,
+ * skipping free-list holes: `glowOut` (procedural `Shape` glow, drawn additive) and
+ * `imageOut` (custom images, drawn straight-alpha). The split is a single high-bit test
+ * on the render byte — a bullet whose `sprite` has `IMAGE_FLAG` set is a custom image.
+ * Returns the count written to each buffer; the caller draws exactly that many per pass.
+ *
+ * `imageLayer(tableId)` resolves a custom image's current atlas layer (animation folded
+ * in), or -1 if it isn't ready yet — in which case that bullet falls back to a glow `Orb`
+ * so it is never invisible while the atlas loads. This is the per-frame CPU hot path at
+ * tens of thousands of bullets, so each branch writes its statically-known array inline
+ * (no `out = …` indirection) to keep the loop monomorphic; the glow branch — the near-
+ * always-taken case — is a single not-taken test away from the plain write it always was.
+ * Both buffers must hold at least `liveCount * INSTANCE_FLOATS` floats.
  */
 export function marshalBullets(
   store: BulletStore,
   alive: Uint8Array,
   highWater: number,
-  out: Float32Array,
-): number {
+  glowOut: Float32Array,
+  imageOut: Float32Array,
+  imageLayer: (tableId: number) => number,
+): BulletMarshalResult {
   const { x, y, angle, radius, r, g, b, sprite } = store;
-  let o = 0;
-  let drawn = 0;
+  let go = 0;
+  let io = 0;
+  let glow = 0;
+  let image = 0;
   for (let i = 0; i < highWater; i++) {
     if (alive[i] === 0) continue;
-    out[o] = x[i];
-    out[o + 1] = y[i];
-    out[o + 2] = radius[i];
-    out[o + 3] = angle[i];
-    out[o + 4] = r[i];
-    out[o + 5] = g[i];
-    out[o + 6] = b[i];
-    out[o + 7] = sprite[i];
-    o += INSTANCE_FLOATS;
-    drawn++;
+    const byte = sprite[i];
+    if (byte & IMAGE_FLAG) {
+      const resolved = imageLayer(byte & IMAGE_INDEX_MASK);
+      if (resolved >= 0) {
+        imageOut[io] = x[i];
+        imageOut[io + 1] = y[i];
+        imageOut[io + 2] = radius[i];
+        imageOut[io + 3] = angle[i];
+        imageOut[io + 4] = r[i];
+        imageOut[io + 5] = g[i];
+        imageOut[io + 6] = b[i];
+        imageOut[io + 7] = resolved;
+        io += INSTANCE_FLOATS;
+        image++;
+        continue;
+      }
+      // Atlas not ready (or a failed url): draw a glow orb rather than nothing.
+      glowOut[go] = x[i];
+      glowOut[go + 1] = y[i];
+      glowOut[go + 2] = radius[i];
+      glowOut[go + 3] = angle[i];
+      glowOut[go + 4] = r[i];
+      glowOut[go + 5] = g[i];
+      glowOut[go + 6] = b[i];
+      glowOut[go + 7] = Shape.Orb;
+      go += INSTANCE_FLOATS;
+      glow++;
+      continue;
+    }
+    // Glow shape — the near-always-taken path; `byte` is the atlas layer directly.
+    glowOut[go] = x[i];
+    glowOut[go + 1] = y[i];
+    glowOut[go + 2] = radius[i];
+    glowOut[go + 3] = angle[i];
+    glowOut[go + 4] = r[i];
+    glowOut[go + 5] = g[i];
+    glowOut[go + 6] = b[i];
+    glowOut[go + 7] = byte;
+    go += INSTANCE_FLOATS;
+    glow++;
   }
-  return drawn;
+  return { glow, image };
 }
 
 /** The instanced textured-quad vertex shader. Shared with the alpha sprite pass
@@ -106,16 +159,22 @@ export interface Overlay {
 
 export interface BulletRenderer {
   /**
-   * Marshal, upload, and draw the live bullets, plus any one-instance `overlays`
-   * (player marker, hitbox dot, …) drawn in order on top. Returns the bullet
-   * instance count drawn.
+   * Marshal and draw the live bullets, splitting them by look: procedural glow `Shape`s
+   * on this additive pass (uploaded + drawn here), and custom-image bullets packed into
+   * `imageOut` for the caller to draw on the straight-alpha sprite pass afterwards (this
+   * renderer can't bind that atlas). Any one-instance `overlays` (player marker, hitbox
+   * dot, …) draw in order on top of the glow bullets. `imageLayer` resolves an image's
+   * current atlas layer (or -1 → glow-orb fallback). Returns both instance counts;
+   * `imageOut` must hold at least `liveCount * INSTANCE_FLOATS` floats.
    */
   draw(
     store: BulletStore,
     alive: Uint8Array,
     highWater: number,
+    imageOut: Float32Array,
+    imageLayer: (tableId: number) => number,
     overlays?: readonly Overlay[],
-  ): number;
+  ): BulletMarshalResult;
   /**
    * Draw `count` caller-marshalled instances (player shots, items, …) on the same
    * instanced program — the generalisation of the one-instance overlay path. `data`
@@ -177,10 +236,11 @@ export function createBulletRenderer(
   gl.blendFunc(gl.ONE, gl.ONE); // additive (premultiplied source) — the glow look
 
   return {
-    draw(store, alive, highWater, overlays): number {
-      const count = marshalBullets(store, alive, highWater, instData);
+    draw(store, alive, highWater, imageOut, imageLayer, overlays): BulletMarshalResult {
+      const counts = marshalBullets(store, alive, highWater, instData, imageOut, imageLayer);
+      const count = counts.glow;
       const overlayCount = overlays ? overlays.length : 0;
-      if (count === 0 && overlayCount === 0) return 0;
+      if (count === 0 && overlayCount === 0) return counts;
       gl.useProgram(prog);
       gl.uniform2f(uViewport, fieldW, fieldH);
       // Re-assert additive blend every draw: the alpha sprite pass (enemies/items/player)
@@ -215,7 +275,7 @@ export function createBulletRenderer(
         gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, 1);
       }
       gl.bindVertexArray(null);
-      return count;
+      return counts;
     },
     drawInstances(data, count): void {
       if (count <= 0) return;

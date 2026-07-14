@@ -37,8 +37,8 @@ const opening: EmitterScript = function* (ctx) {
       speed: 65,
       angle: phase + ctx.rng.range(-0.08, 0.08),
       radius: 4,
-      color: VIOLET,
-      sprite: Shape.Orb,
+      color: [1, 1, 1], // white tint → the image shows its own colours (render-only)
+      sprite: demoSprites.talismanBullet, // full-colour custom-image enemy bullet
     });
     phase += 0.21;
     yield 22;

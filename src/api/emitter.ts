@@ -26,6 +26,7 @@ import type { Rng } from "../core/prng";
 import { sin, cos, atan2 } from "../core/trig";
 import { Shape } from "../render/shapes";
 import type { LaserSystem } from "../touhou/laser";
+import type { BulletSprite } from "./sprites";
 import type { BulletBehavior } from "./controllers";
 import { linear } from "./controllers";
 
@@ -42,8 +43,10 @@ interface SpawnOpts {
   radius?: number;
   /** Linear RGB tint, 0..1. Defaults to white. */
   color?: readonly [number, number, number];
-  /** Atlas shape. Defaults to `Shape.Orb`. */
-  sprite?: number;
+  /** A procedural glow `Shape`, or a custom image handle (authored pointing +x, so it
+   *  rotates to point along travel). Defaults to `Shape.Orb`. Image bullets draw on the
+   *  straight-alpha sprite pass; the look is render-only, never folded into the hash. */
+  sprite?: BulletSprite;
   /** Per-bullet behaviour descriptor. Defaults to `linear`. */
   behavior?: BulletBehavior;
 }
@@ -203,6 +206,13 @@ export interface EmitterDeps {
   /** The run's difficulty rank, surfaced to every emitter as `ctx.difficulty`. */
   readonly difficulty: number;
   /**
+   * Resolve a spawn call's `sprite` (a glow `Shape` number or a custom image handle) to
+   * the one-byte render selector stored on the bullet. Called ONCE per fire-call (not per
+   * bullet), so interning a handle is O(distinct images), not O(bullets). The sim owns the
+   * table (so ids stay sim-local); the selector is render-only and never hashed.
+   */
+  resolveSprite: (sprite: BulletSprite) => number;
+  /**
    * Append a child emitter to the scheduler, resuming next tick, tagged `group`,
    * running on `rng`. Provided by the sim (which owns the scheduler array). The
    * caller passes its OWN stream so a child inherits the parent's RNG stream (boss
@@ -246,7 +256,13 @@ function makeBulletGroup(system: BulletSystem, slots: number[], gens: number[]):
 }
 
 function makeContext(deps: EmitterDeps, group: number, rng: Rng, pos?: Vec2): EmitterContext {
-  const { system, lasers, target } = deps;
+  const { system, lasers, target, resolveSprite } = deps;
+
+  // A spawn call's `sprite` → the one-byte render selector, resolved once per fire-call.
+  // `undefined` (the common case) shortcuts straight to the default glow orb without
+  // touching the resolver.
+  const resolve = (sprite: BulletSprite | undefined): number =>
+    sprite === undefined ? Shape.Orb : resolveSprite(sprite);
 
   // Spawn one bullet from already-resolved primitives. Accelerate is the one
   // behaviour whose stored params depend on the launch angle: its acceleration is
@@ -319,7 +335,7 @@ function makeContext(deps: EmitterDeps, group: number, rng: Rng, pos?: Vec2): Em
       const y = o.y ?? ctx.y;
       const radius = o.radius ?? DEFAULT_RADIUS;
       const color = o.color ?? WHITE;
-      const sprite = o.sprite ?? Shape.Orb;
+      const sprite = resolve(o.sprite);
       const beh = o.behavior ?? linear;
       const base = o.angle ?? 0;
       const step = (Math.PI * 2) / o.count;
@@ -343,7 +359,7 @@ function makeContext(deps: EmitterDeps, group: number, rng: Rng, pos?: Vec2): Em
         o.angle,
         o.radius ?? DEFAULT_RADIUS,
         o.color ?? WHITE,
-        o.sprite ?? Shape.Orb,
+        resolve(o.sprite),
         o.behavior ?? linear,
       );
     },
@@ -353,7 +369,7 @@ function makeContext(deps: EmitterDeps, group: number, rng: Rng, pos?: Vec2): Em
       const y = o.y ?? ctx.y;
       const radius = o.radius ?? DEFAULT_RADIUS;
       const color = o.color ?? WHITE;
-      const sprite = o.sprite ?? Shape.Orb;
+      const sprite = resolve(o.sprite);
       const beh = o.behavior ?? linear;
       const base = o.angle ?? 0;
       const step = (Math.PI * 2) / o.count;
@@ -367,7 +383,7 @@ function makeContext(deps: EmitterDeps, group: number, rng: Rng, pos?: Vec2): Em
       const y = o.y ?? ctx.y;
       const radius = o.radius ?? DEFAULT_RADIUS;
       const color = o.color ?? WHITE;
-      const sprite = o.sprite ?? Shape.Orb;
+      const sprite = resolve(o.sprite);
       const beh = o.behavior ?? linear;
       if (o.count <= 1) {
         emit(x, y, o.speed, o.angle, radius, color, sprite, beh);
@@ -387,7 +403,7 @@ function makeContext(deps: EmitterDeps, group: number, rng: Rng, pos?: Vec2): Em
       const count = o.count ?? 1;
       const radius = o.radius ?? DEFAULT_RADIUS;
       const color = o.color ?? WHITE;
-      const sprite = o.sprite ?? Shape.Orb;
+      const sprite = resolve(o.sprite);
       const beh = o.behavior ?? linear;
       if (count <= 1) {
         emit(x, y, o.speed, aim, radius, color, sprite, beh);
