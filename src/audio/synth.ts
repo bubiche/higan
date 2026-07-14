@@ -133,10 +133,18 @@ export const DEFAULT_SFX: Record<SfxId, SynthGen> = {
     // celebratory ascending arpeggio
     [72, 76, 79, 84, 88].forEach((m, i) => osc(c, c.destination, { at: i * 0.07, dur: 0.16, freq: mtof(m), type: "triangle", gain: 0.2 }));
   }),
-  [SfxId.Pichuun]: sfx(0.55, (c) => {
-    // the classic descending "pi-chu~n"
-    osc(c, c.destination, { at: 0, dur: 0.5, freq: 1400, freqEnd: 120, type: "sine", gain: 0.3, attack: 0.005 });
-    osc(c, c.destination, { at: 0, dur: 0.5, freq: 1406, freqEnd: 124, type: "sine", gain: 0.14 });
+  [SfxId.Pichuun]: sfx(0.62, (c) => {
+    // The classic Touhou death whistle — one continuous "pi→chuuun" gesture: a fast bright
+    // up-chirp ("pi") that hands straight off (matched pitch at the seam) into a long
+    // descending whistle ("chuuun"). Two slightly-detuned sines on the tail beat against each
+    // other as they fall — that shimmering warble is the recognizable part; a triangle an
+    // octave below adds weight, and a breath of high-passed air softens the onset.
+    const d = c.destination;
+    osc(c, d, { at: 0, dur: 0.05, freq: 720, freqEnd: 1950, type: "sine", gain: 0.24, attack: 0.004 });
+    osc(c, d, { at: 0.05, dur: 0.55, freq: 1950, freqEnd: 90, type: "sine", gain: 0.3, attack: 0.004 });
+    osc(c, d, { at: 0.05, dur: 0.55, freq: 1962, freqEnd: 96, type: "sine", gain: 0.13, attack: 0.004 });
+    osc(c, d, { at: 0.05, dur: 0.5, freq: 975, freqEnd: 60, type: "triangle", gain: 0.1, attack: 0.006 });
+    noise(c, d, { at: 0, dur: 0.09, gain: 0.06, cutoff: 4000, highpass: true });
   }),
   [SfxId.Cancel]: sfx(0.35, (c) => {
     noise(c, c.destination, { at: 0, dur: 0.3, gain: 0.2, cutoff: 5000, highpass: true });
