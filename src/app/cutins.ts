@@ -26,6 +26,7 @@
 // cut-in look travels with the engine, not the host page.
 
 import type { BossState } from "../core/sim";
+import { PLAYFIELD_W } from "../core/playfield";
 import { SfxId, type SfxEvent } from "../core/events";
 import type { SpriteHandle } from "../api/sprites";
 import { createPortraitResolver } from "./portrait";
@@ -46,8 +47,10 @@ export interface CutinIdentity {
  *  destroyed on exit); presentation-only. */
 export interface CutinLayer {
   /** Persistent chrome + the appear-edge splash, from sim STATE. Call EVERY rendered frame
-   *  (even while paused) — it is idempotent and detects the boss-appear edge itself. */
-  reflect(boss: Readonly<BossState> | null, identity: CutinIdentity): void;
+   *  (even while paused) — it is idempotent and detects the boss-appear edge itself. `bossX`
+   *  is the boss's live playfield x (`sim.bossBody.x`), used to place the position arrow;
+   *  ignored while no boss is present. */
+  reflect(boss: Readonly<BossState> | null, bossX: number, identity: CutinIdentity): void;
   /** Transient cut-ins from sim EVENTS. Call ONLY on a real forward advance (`driver.tick >
    *  t0`), mirroring the audio/VFX gate, so a scrub/replay-rebuild can't machine-gun them. */
   trigger(events: readonly SfxEvent[], identity: CutinIdentity): void;
@@ -110,7 +113,30 @@ function injectStyles(): void {
 @keyframes cutinCapture {
   0% { opacity:0; transform:translateY(12px) scale(0.9); }
   20% { opacity:1; transform:translateY(0) scale(1); }
-  68% { opacity:1; } 100% { opacity:0; transform:translateY(-8px); } }`;
+  68% { opacity:1; } 100% { opacity:0; transform:translateY(-8px); } }
+/* Boss HP arc — a thin curved bar across the top for the current phase, draining left→right.
+   Shown while a phase is ACTIVE; a survival phase locks it full with a distinct gold fill. */
+.cutin-hp { position:absolute; top:4px; left:8%; right:8%; height:6px; border-radius:4px;
+  background:rgba(10,14,28,0.7); box-shadow:0 0 0 1px rgba(140,160,255,0.25), 0 1px 3px #000;
+  opacity:0; transition:opacity .3s ease; overflow:hidden; }
+.cutin-hp.show { opacity:1; }
+.cutin-hp-fill { height:100%; width:100%; border-radius:4px;
+  background:linear-gradient(90deg,#ff6f8c,#ff3b57); box-shadow:0 0 8px #ff3b57;
+  transition:width .12s linear; }
+.cutin-hp-fill.survival { background:linear-gradient(90deg,#ffe6a2,#ffcf6f); box-shadow:0 0 10px #ffcf6f; }
+/* Spell timer — the prominent countdown, top-right; reddens in the final seconds. */
+.cutin-timer { position:absolute; top:12px; right:10px; font-variant-numeric:tabular-nums;
+  font:800 22px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color:#eaf0ff;
+  text-shadow:0 0 10px #2a52d0, 0 1px 2px #000; opacity:0; transition:opacity .3s ease; }
+.cutin-timer.show { opacity:1; }
+.cutin-timer.urgent { color:#ff6a6a; text-shadow:0 0 12px #ff2a2a, 0 1px 2px #000; }
+/* Position arrow — an up-pointing marker at the bottom edge tracking the boss's x. Shown on
+   boss PRESENCE (persists through the between-phase glide), so a drifted/off-top boss is findable. */
+.cutin-arrow { position:absolute; bottom:3px; width:0; height:0;
+  border-left:7px solid transparent; border-right:7px solid transparent;
+  border-bottom:11px solid #ff5a6e; filter:drop-shadow(0 0 5px #ff3b57);
+  transform:translateX(-50%); opacity:0; transition:opacity .3s ease, left .1s linear; }
+.cutin-arrow.show { opacity:0.95; }`;
   document.head.appendChild(style);
 }
 
@@ -123,7 +149,18 @@ export function createCutins(overlay: HTMLElement): CutinLayer {
   nameplate.className = "cutin-nameplate";
   const banner = document.createElement("div");
   banner.className = "cutin-banner";
-  root.append(nameplate, banner);
+  // Boss HUD chrome (state-driven, persistent): the HP arc (with its fill), the spell timer,
+  // and the bottom-edge position arrow. Built once; shown/hidden + updated in `reflect`.
+  const hpArc = document.createElement("div");
+  hpArc.className = "cutin-hp";
+  const hpFill = document.createElement("div");
+  hpFill.className = "cutin-hp-fill";
+  hpArc.appendChild(hpFill);
+  const timer = document.createElement("div");
+  timer.className = "cutin-timer";
+  const arrow = document.createElement("div");
+  arrow.className = "cutin-arrow";
+  root.append(nameplate, banner, hpArc, timer, arrow);
   overlay.appendChild(root);
 
   // Resolved portrait URLs, cached by handle identity (a procedural source is painted once).
@@ -146,8 +183,34 @@ export function createCutins(overlay: HTMLElement): CutinLayer {
   };
 
   return {
-    reflect(boss, identity): void {
+    reflect(boss, bossX, identity): void {
       const present = boss !== null;
+
+      // HP arc + timer: shown while a phase is ACTIVE (a live phase), hidden during the
+      // invulnerable between-phase glide so there's no stale bar. A survival phase locks the
+      // arc full (its hp never drains) with the distinct gold fill; the timer is the read.
+      if (present && boss.active) {
+        const ratio = boss.survival ? 1 : boss.hpMax > 0 ? boss.hp / boss.hpMax : 0;
+        hpFill.style.width = `${Math.max(0, Math.min(1, ratio)) * 100}%`;
+        hpFill.classList.toggle("survival", boss.survival);
+        hpArc.classList.add("show");
+        const secs = Math.max(0, boss.timeLeft) / 60;
+        timer.textContent = secs.toFixed(2);
+        timer.classList.toggle("urgent", secs < 5);
+        timer.classList.add("show");
+      } else {
+        hpArc.classList.remove("show");
+        timer.classList.remove("show");
+      }
+
+      // Position arrow: on boss PRESENCE (like the nameplate), so it persists through the
+      // between-phase glide and points at a boss that's drifted or gone off the top edge.
+      if (present) {
+        arrow.style.left = `${(bossX / PLAYFIELD_W) * 100}%`;
+        arrow.classList.add("show");
+      } else {
+        arrow.classList.remove("show");
+      }
 
       // Nameplate: shown whenever a (named) boss is on the field.
       if (present && identity.bossName) {
@@ -206,6 +269,9 @@ export function createCutins(overlay: HTMLElement): CutinLayer {
       prevPresent = bossPresent;
       nameplate.classList.remove("show");
       banner.classList.remove("show");
+      hpArc.classList.remove("show");
+      timer.classList.remove("show");
+      arrow.classList.remove("show");
       root.querySelectorAll(".cutin-splash, .cutin-portrait, .cutin-bomb, .cutin-capture").forEach((n) => n.remove());
     },
 

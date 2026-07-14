@@ -636,7 +636,7 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       // Persistent cut-in chrome (nameplate, spell banner) + the boss-appear splash edge, from
       // sim STATE. Runs every rendered frame (even paused) so the appear edge is at-most-once
       // and never stale across a scrub — see cutins.ts. Transient cues went through the gate.
-      cutins.reflect(sim.boss, currentIdentity());
+      cutins.reflect(sim.boss, sim.bossBody.x, currentIdentity());
     },
     hotReloadStage(): void {
       driver.resync();
