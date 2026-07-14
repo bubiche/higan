@@ -17,7 +17,6 @@ import {
   curve,
   delay,
   home,
-  ramp,
   wave,
   Shape,
 } from "higan";

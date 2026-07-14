@@ -11,7 +11,6 @@ import {
   type BossScript,
   type BossVisual,
   type EmitterScript,
-  curve,
   home,
   ramp,
   wave,
