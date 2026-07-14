@@ -334,6 +334,42 @@ const talismanBullet: ImageSource = {
   },
 };
 
+/** An ANIMATED custom-image bullet — a warm ember whose pulse ring expands and fades over
+ *  the frames, then loops. The cycle is a growth/fade over `frame`, independent of heading,
+ *  so the animation reads no matter which way the bullet is travelling (the quad is velocity-
+ *  rotated, but a concentric pulse looks the same at any rotation). Carries its own colours
+ *  like the other image bullets; the loader lays the frames into consecutive atlas layers and
+ *  the renderer cycles them on the presentation clock (never the sim tick — replay-safe). */
+const emberBullet: ImageSource = {
+  kind: "procedural",
+  draw(ctx, size, frame, frames) {
+    const c = size / 2;
+    const R = size * 0.36;
+    const t = frame / frames; // 0..1 across the loop
+    ctx.save();
+    ctx.translate(c, c);
+    // Expanding, fading pulse ring: radius grows with t, alpha fades out — a shockwave that
+    // resets each loop.
+    ctx.strokeStyle = `rgba(255,180,90,${(0.7 * (1 - t)).toFixed(3)})`;
+    ctx.lineWidth = size * 0.05;
+    ctx.beginPath();
+    ctx.arc(0, 0, R * (0.3 + t * 0.7), 0, Math.PI * 2);
+    ctx.stroke();
+    // Warm core, brightest at the start of the loop (a gentle breathe so the pulse has a
+    // source), drawn on top of the ring.
+    const coreA = 0.75 + 0.25 * Math.cos(t * Math.PI * 2);
+    ctx.fillStyle = `rgba(255,120,60,${coreA.toFixed(3)})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, R * 0.42, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,240,200,0.95)";
+    ctx.beginPath();
+    ctx.arc(0, 0, R * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  },
+};
+
 /** The player craft: a small upward arrowhead with a cockpit dot (static). */
 const player: ImageSource = {
   kind: "procedural",
@@ -366,6 +402,7 @@ export const demoSprites = defineSprites({
   player: { source: player },
   shotAmulet: { source: shotAmulet }, // a full-colour custom-image player shot
   talismanBullet: { source: talismanBullet }, // a full-colour custom-image enemy bullet
+  emberBullet: { source: emberBullet, frames: 6, fps: 12 }, // an ANIMATED custom-image bullet
 
   // Boss bodies — drawn at the boss origin while an encounter runs (passed to
   // `ctx.boss(script, { sprite, color, radius })`). Like the enemies, drawn white so the

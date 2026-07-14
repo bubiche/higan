@@ -141,6 +141,10 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
   const itemInstances = new Float32Array(ITEM_CAPACITY * INSTANCE_FLOATS);
   // Reused scratch for the single-instance player-craft sprite draw.
   const playerInstance = new Float32Array(INSTANCE_FLOATS);
+  // Reused scratch for the single-instance focus hitbox dot. Drawn as its own additive-glow
+  // instance AFTER the custom-image danmaku pass, so the dot reads on top of image bullets
+  // (which draw solid over the glow haze) — you must always be able to see your own hitbox.
+  const hitboxInstance = new Float32Array(INSTANCE_FLOATS);
   // Reused scratch for the single-instance boss-body sprite draw (drawn at the sim's boss
   // origin while a boss is on the field, on the same alpha sprite pass as enemies).
   const bossInstance = new Float32Array(INSTANCE_FLOATS);
@@ -548,8 +552,6 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       const { system, player } = sim;
       const sprites = shell.sprites;
       const clock = presentationClock;
-      hitboxMarker.x = player.x;
-      hitboxMarker.y = player.y;
 
       // Parallax background FIRST, behind everything, over the shell's clear. Read the
       // stage's layers fresh from `shell.def` so a hot-reload picks up edits; scroll runs off
@@ -576,7 +578,8 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
         playerMarker.y = player.y;
         overlays.push(playerMarker); // glow fallback until the sprite atlas is ready
       }
-      if (player.focused) overlays.push(hitboxMarker);
+      // The hitbox dot is NOT batched with the overlays above: those draw inside the glow pass,
+      // under the custom-image danmaku. The dot draws separately, after the image pass (below).
 
       // Draw order: beams (behind), then player shots (glow, under everything for
       // readability), then enemies and items and the player craft on the ALPHA sprite pass,
@@ -660,6 +663,20 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
         overlays,
       );
       sprites.drawInstances(bulletImageInstances, bulletCounts.image);
+      // The focus hitbox dot, drawn last of the danmaku layers (additive glow, on top of the
+      // custom-image bullets) so it is never occluded by an image bullet passing over it —
+      // seeing your own hitbox is what makes focus-dodging legible. Cosmetic, out of sim/hash.
+      if (player.focused) {
+        hitboxInstance[0] = player.x;
+        hitboxInstance[1] = player.y;
+        hitboxInstance[2] = hitboxMarker.radius;
+        hitboxInstance[3] = 0; // round — no rotation
+        hitboxInstance[4] = hitboxMarker.color[0];
+        hitboxInstance[5] = hitboxMarker.color[1];
+        hitboxInstance[6] = hitboxMarker.color[2];
+        hitboxInstance[7] = hitboxMarker.sprite;
+        bullets.drawInstances(hitboxInstance, 1);
+      }
       const drawn = bulletCounts.glow + bulletCounts.image;
       // VFX on top of the danmaku: additive glow sparks (reusing the bullet program), then the
       // full-field flash last of all. Both are no-ops when nothing is live. The shake is applied

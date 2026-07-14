@@ -21,6 +21,7 @@ import {
   wave,
   Shape,
 } from "higan";
+import { demoSprites } from "./sprites";
 
 const CYAN: readonly [number, number, number] = [0.45, 0.85, 1.0];
 const MAGENTA: readonly [number, number, number] = [1.0, 0.45, 0.85];
@@ -160,10 +161,10 @@ const wavePattern: EmitterScript = function* (ctx) {
 
 /** Drift → freeze → re-aim → snap: a staged-combinator ring. Each bullet launches
  *  curving outward, freezes in place, then re-aims at the player and accelerates — one
- *  bullet running a whole timeline of moves (see `staged`). Exported so the DEV pattern
- *  preview (`?preview=staged`) can render it solo — the showcase guard stage overflows
- *  the store and never draws. */
-export const stagedPattern: EmitterScript = function* (ctx) {
+ *  bullet running a whole timeline of moves (see `staged`). Like every entry here it can be
+ *  viewed solo via the DEV `?preview=staged` scene (the showcase guard stage overflows the
+ *  store and never draws). */
+const stagedPattern: EmitterScript = function* (ctx) {
   let phase = 0;
   while (true) {
     ctx.ring({
@@ -181,6 +182,25 @@ export const stagedPattern: EmitterScript = function* (ctx) {
     });
     phase += 0.27;
     yield 34;
+  }
+};
+
+/** A slow ring of ANIMATED custom-image bullets (`emberBullet`) — fired sparse and slow so
+ *  the per-bullet pulse animation (presentation-clock driven, never the sim tick) reads as it
+ *  drifts. A white tint lets the sprite show its own warm colours. */
+const emberPattern: EmitterScript = function* (ctx) {
+  let phase = 0;
+  while (true) {
+    ctx.ring({
+      count: 8,
+      speed: 55,
+      angle: phase,
+      radius: 8,
+      color: [1, 1, 1],
+      sprite: demoSprites.emberBullet,
+    });
+    phase += 0.19;
+    yield 28;
   }
 };
 
@@ -281,4 +301,5 @@ export const SHOWCASE: readonly ScenePattern[] = [
   { name: "laser", script: laserPattern },
   { name: "shapes", script: shapesPattern },
   { name: "flutter", script: flutterPattern },
+  { name: "ember", script: emberPattern },
 ];

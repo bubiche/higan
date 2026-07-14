@@ -20,7 +20,7 @@ import { assertDeterministic, assertStreamIsolation, PATTERN_TICKS, mixSeed } fr
 import { DT, PLAYFIELD_H } from "higan";
 import { demoGame } from "./game";
 import { NORMAL } from "./difficulty";
-import { showcaseStage, stagedPattern } from "./showcase";
+import { showcaseStage, SHOWCASE } from "./showcase";
 import type { InputFrame, GameDefinition, StageDef } from "higan";
 
 const SEED = demoGame.seed;
@@ -189,20 +189,22 @@ if (import.meta.env.DEV) {
 
 // DEV-only pattern preview. The showcase guard stage overflows the store by design and
 // never renders, so normal play offers no way to *see* an individual pattern. With
-// `?preview=staged` in the URL, run a store-safe solo scene of the staged combinator
-// (fired from the upper field so the full ring reads) — the live eyeball for the staged
-// combinator. Throwaway and DEV-gated (dead-stripped from production); it touches neither
-// the playable stage nor any determinism baseline.
-const previewMode =
-  import.meta.env.DEV && new URLSearchParams(location.search).get("preview") === "staged";
+// `?preview=<name>` in the URL (any `SHOWCASE` entry — e.g. `staged`, `ember`), run a
+// store-safe solo scene of just that pattern, fired from the upper field so the full ring
+// reads — the live eyeball for one pattern (e.g. an ANIMATED image bullet cycling its
+// frames). Throwaway and DEV-gated (dead-stripped from production); it touches neither the
+// playable stage nor any determinism baseline.
+const previewName = import.meta.env.DEV ? new URLSearchParams(location.search).get("preview") : null;
+const previewPattern = previewName ? SHOWCASE.find((p) => p.name === previewName) : undefined;
+const previewMode = previewPattern !== undefined;
 const previewGame: GameDefinition = {
   ...demoGame,
   stages: [
     {
-      id: "staged-preview",
+      id: `${previewName}-preview`,
       script: function* (ctx) {
         ctx.y = PLAYFIELD_H * 0.28; // fire from upper-center, not the very top edge
-        ctx.sub(stagedPattern);
+        if (previewPattern) ctx.sub(previewPattern.script);
         yield 1_000_000;
       },
     },
