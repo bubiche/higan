@@ -103,9 +103,28 @@
         text-align: center; }
       /* Side HUD + replay controls — built by the in-game screen into this panel. */
       #sidebar { width: 230px; display: flex; flex-direction: column; gap: 14px; }
-      #hud { white-space: pre; text-shadow: 0 1px 2px #000; }
+      /* The player-facing HUD: a styled status column (title, difficulty badge, scores,
+         resources) sharing the menu/records palette + tabular-nums so it reads as the same
+         app. The dev debug readout (.hud-debug) is appended beneath it, hidden until toggled. */
+      #hud { display: flex; flex-direction: column; gap: 12px; text-shadow: 0 1px 2px #000; }
+      .hud-face { display: flex; flex-direction: column; gap: 10px; }
+      .hud-title { font-size: 15px; font-weight: 700; letter-spacing: 2px; color: #e7edff;
+        text-shadow: 0 0 16px #2a52d0; }
+      .hud-diff { align-self: flex-start; font-size: 10px; letter-spacing: 1px;
+        text-transform: uppercase; color: #cdd6ea; background: #16203a;
+        border: 1px solid #2a3a66; border-radius: 4px; padding: 1px 8px; }
+      .hud-section { display: flex; flex-direction: column; gap: 3px;
+        border-top: 1px solid #1c2233; padding-top: 8px; }
+      .hud-row { display: flex; justify-content: space-between; align-items: baseline;
+        gap: 12px; }
+      .hud-label { color: #8d97ac; }
+      .hud-value { color: #e7edff; font-variant-numeric: tabular-nums; text-align: right; }
+      .hud-icons { color: #ffd76a; letter-spacing: 1px; }
+      .hud-debug { white-space: pre; margin: 0; font: inherit; color: #7c8398;
+        border-top: 1px solid #1c2233; padding-top: 8px; }
       #replay-controls { display: flex; flex-direction: column; gap: 6px;
         border-top: 1px solid #1c2233; padding-top: 12px; }
+      #replay-status { color: #7c8398; min-height: 1.4em; }
       #replay-controls button { font: inherit; text-align: left; cursor: pointer;
         color: #cdd6ea; background: #11151f; border: 1px solid #2a3346;
         border-radius: 4px; padding: 6px 9px; }
@@ -125,7 +144,7 @@
     </div>
     <p id="controls-hint">
       move: arrows/WASD · shoot: Z · bomb: X · focus: shift · esc: pause
-      &nbsp;—&nbsp; space: debug-pause · .: step · ,: back · 1/2/3: speed
+      &nbsp;—&nbsp; space: debug-pause · .: step · ,: back · 1/2/3: speed · `: debug HUD
       &nbsp;—&nbsp; menus: ↑/↓ select · ←/→ adjust · Z/Enter: confirm
     </p>
     <script type="module" src="/games/demo/main.ts"></script>

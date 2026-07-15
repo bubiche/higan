@@ -26,7 +26,9 @@ import { DT } from "../../core/playfield";
 import { PlayerState, readCarryIn, type CarryIn } from "../../touhou/player";
 import { serializeRunReplay, deserializeRunReplay, type RunReplay } from "../../touhou/replay";
 import { computeConfigId } from "../replay-compat";
-import { recordPracticeStage } from "../save";
+import { recordPracticeStage, readHiScore } from "../save";
+import { DEFAULT_DIFFICULTIES } from "../../api/game";
+import { maxPowerFor, DEFAULT_SHOT_CONFIG } from "../../touhou/shot";
 import { Shape } from "../../render/shapes";
 import { INSTANCE_FLOATS, type Overlay } from "../../render/bullets";
 import { marshalShots } from "../../render/shots";
@@ -203,6 +205,9 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
   let loadBtn: HTMLButtonElement;
   let nextSegBtn: HTMLButtonElement;
   let replayFile: HTMLInputElement;
+  // The replay save/load feedback line, shown beside the (always-visible) replay controls —
+  // NOT in the dev debug readout, so a production build still confirms a save/load.
+  let replayStatusEl: HTMLElement;
 
   const downloadReplay = (): void => {
     // In playback (a replay is loaded), re-export the LOADED blob verbatim — its priors +
@@ -360,11 +365,13 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
         <button id="load-replay" type="button">⬆ Load replay…</button>
         <button id="next-segment" type="button" hidden></button>
         <input id="replay-file" type="file" accept=".hreplay,application/octet-stream" hidden />
+        <div id="replay-status"></div>
       </div>`;
     saveBtn = sidebar.querySelector("#save-replay")!;
     loadBtn = sidebar.querySelector("#load-replay")!;
     nextSegBtn = sidebar.querySelector("#next-segment")!;
     replayFile = sidebar.querySelector("#replay-file")!;
+    replayStatusEl = sidebar.querySelector("#replay-status")!;
     // The HUD reads sim state every frame and keeps no counters of its own.
     hud = createHud(sidebar.querySelector("#hud")!);
     // The cut-in overlay draws over the playfield (not the sidebar), so it lives in the
@@ -484,6 +491,9 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
         else if (code === "Period") driver.singleStep();
         else if (code === "Comma") driver.stepBack();
         else if (code in SPEEDS) driver.setSpeed(SPEEDS[code]!);
+        // Reveal/hide the dev debug readout (tick/hash/entity counts). DEV-only — the
+        // readout isn't built in a production bundle, so this no-ops there.
+        else if (code === "Backquote") hud.toggleDebug();
       }
 
       const haltedForDialogue = driver.frame(dtSeconds);
@@ -683,7 +693,23 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       // by the shell as a viewport offset (it must move every layer, not just this screen).
       shell.vfx.drawParticles(bullets);
       shell.vfx.drawFlash();
-      hud.update(sim, driver, { beams, drawn, replayStatus });
+      // Player-facing HUD reads. All read FRESH each frame from the current character / rank /
+      // save (loading a replay adopts a different character or rank in place mid-screen), so
+      // the HUD tracks the adopted run without being rebuilt. HiScore ticks up live once the
+      // run's score passes the stored best for this character×difficulty.
+      const difficulties = shell.def.difficulties ?? DEFAULT_DIFFICULTIES;
+      const difficulty = difficulties[run.difficulty];
+      const savedBest = difficulty ? (readHiScore(shell.save, character.id, difficulty.id) ?? 0) : 0;
+      hud.update(sim, driver, {
+        beams,
+        drawn,
+        hiScore: Math.max(savedBest, player.score),
+        maxPower: maxPowerFor(character.shot ?? DEFAULT_SHOT_CONFIG),
+        difficultyLabel: difficulty?.label ?? "",
+        title: shell.def.title,
+      });
+      // Replay feedback stays with the always-visible controls (not the dev readout).
+      replayStatusEl.textContent = replayStatus;
       // Persistent cut-in chrome (nameplate, spell banner) + the boss-appear splash edge, from
       // sim STATE. Runs every rendered frame (even paused) so the appear edge is at-most-once
       // and never stale across a scrub — see cutins.ts. Transient cues went through the gate.

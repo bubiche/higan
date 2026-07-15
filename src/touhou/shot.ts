@@ -138,6 +138,17 @@ export const DEFAULT_SHOT_CONFIG: ShotConfig = {
   focusSpreadFrac: 0.18,
 };
 
+/**
+ * The power ceiling a shot config reaches — the level past which more power buys no extra
+ * streams (streams cap at `maxStreams`). Derived purely from the stream-scaling knobs, so a
+ * presentation reader (the HUD's `power / MAX`) can show the same ceiling the item economy
+ * clamps to WITHOUT re-deriving the formula. Pure and side-effect-free; never enters the sim
+ * or its hash (a display read). The sim computes the same value inline where it clamps power.
+ */
+export function maxPowerFor(shot: ShotConfig): number {
+  return Math.max(0, (shot.maxStreams - shot.baseStreams) * shot.powerPerStream);
+}
+
 /** A circular target a shot can hit (the boss now; enemies in the next sub-task). */
 export interface HitTarget {
   x: number;
