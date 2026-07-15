@@ -16,7 +16,9 @@ import { createEndingScreen } from "./ending";
 import { createPauseScreen } from "./pause";
 import { createDialogueScreen } from "./dialogue";
 import { createContinueScreen } from "./continue";
+import { createStageClearScreen } from "./stageclear";
 import { createHud, type Hud } from "../hud";
+import { createFieldChrome, type FieldChrome } from "../chrome";
 import { createCutins, type CutinLayer, type CutinIdentity } from "../cutins";
 import { createStageSim, type Simulation, SHOT_CAPACITY, ENEMY_CAPACITY, ITEM_CAPACITY, SIM_CAPACITY } from "../../core/sim";
 import { SfxId } from "../../core/events";
@@ -169,6 +171,12 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
   // Bound to its DOM element in `buildDom` (the element doesn't exist until enter,
   // which always runs before the first frame/render).
   let hud!: Hud;
+  // In-game field chrome (stage-opening splash + the corner FPS readout). Built into
+  // `shell.overlay` in `buildDom`, destroyed on exit. Presentation-only.
+  let chrome!: FieldChrome;
+  // Smoothed frame rate for the FPS readout — an EMA over real frame dt (never the sim tick),
+  // so a single slow frame doesn't make the number jump.
+  let fpsEma = 0;
   // The boss/spell cut-in overlay (nameplate, appear splash, spell banner, cut-in portraits,
   // capture flourish). Built into `shell.overlay` in `buildDom`, destroyed on exit.
   let cutins!: CutinLayer;
@@ -205,8 +213,8 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
   let loadBtn: HTMLButtonElement;
   let nextSegBtn: HTMLButtonElement;
   let replayFile: HTMLInputElement;
-  // The replay save/load feedback line, shown beside the (always-visible) replay controls —
-  // NOT in the dev debug readout, so a production build still confirms a save/load.
+  // The replay save/load feedback line, shown beside the replay controls. Built only in a dev
+  // bundle (the controls are DEV-gated in `buildDom`), so writes to it are gated the same way.
   let replayStatusEl: HTMLElement;
 
   const downloadReplay = (): void => {
@@ -358,44 +366,55 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
   };
 
   const buildDom = (): void => {
-    sidebar.innerHTML = `
-      <div id="hud"></div>
-      <div id="replay-controls">
-        <button id="save-replay" type="button">⬇ Save replay</button>
-        <button id="load-replay" type="button">⬆ Load replay…</button>
-        <button id="next-segment" type="button" hidden></button>
-        <input id="replay-file" type="file" accept=".hreplay,application/octet-stream" hidden />
-        <div id="replay-status"></div>
-      </div>`;
-    saveBtn = sidebar.querySelector("#save-replay")!;
-    loadBtn = sidebar.querySelector("#load-replay")!;
-    nextSegBtn = sidebar.querySelector("#next-segment")!;
-    replayFile = sidebar.querySelector("#replay-file")!;
-    replayStatusEl = sidebar.querySelector("#replay-status")!;
+    // The raw replay Save/Load controls are a dev/power-user stopgap with no player framing
+    // yet, so they're built ONLY in a dev bundle (`import.meta.env.DEV` — Vite dead-strips the
+    // block from production, like the debug HUD readout). A production build ships just the
+    // player HUD. (A real player-facing replay home lands in a later wave; until then, no
+    // half-framed controls.) The whole block — HTML, queries, listeners — is gated together so
+    // production never `querySelector`s a stripped element and dereferences null.
+    sidebar.innerHTML = `<div id="hud"></div>${
+      import.meta.env.DEV
+        ? `<div id="replay-controls">
+             <button id="save-replay" type="button">⬇ Save replay</button>
+             <button id="load-replay" type="button">⬆ Load replay…</button>
+             <button id="next-segment" type="button" hidden></button>
+             <input id="replay-file" type="file" accept=".hreplay,application/octet-stream" hidden />
+             <div id="replay-status"></div>
+           </div>`
+        : ""
+    }`;
     // The HUD reads sim state every frame and keeps no counters of its own.
     hud = createHud(sidebar.querySelector("#hud")!);
-    // The cut-in overlay draws over the playfield (not the sidebar), so it lives in the
-    // shell's per-screen overlay layer. Reads sim state/events; keeps no counters.
+    // The cut-in overlay + field chrome draw over the playfield (not the sidebar), so they live
+    // in the shell's per-screen overlay layer. Both read sim state; neither keeps counters.
     cutins = createCutins(shell.overlay);
+    chrome = createFieldChrome(shell.overlay);
 
-    saveBtn.addEventListener("click", () => {
-      downloadReplay();
-      saveBtn.blur(); // so Space toggles pause again, not the button
-    });
-    loadBtn.addEventListener("click", () => {
-      replayFile.click();
-      loadBtn.blur();
-    });
-    nextSegBtn.addEventListener("click", () => {
-      if (loadedReplay && replayIndex < loadedReplay.segments.length - 1) loadSegment(replayIndex + 1);
-      nextSegBtn.blur();
-    });
-    replayFile.addEventListener("change", () => {
-      const file = replayFile.files?.[0];
-      if (file) void loadReplayFile(file);
-      replayFile.value = ""; // reset so re-picking the same file fires `change` again
-    });
-    refreshReplayControls();
+    if (import.meta.env.DEV) {
+      saveBtn = sidebar.querySelector("#save-replay")!;
+      loadBtn = sidebar.querySelector("#load-replay")!;
+      nextSegBtn = sidebar.querySelector("#next-segment")!;
+      replayFile = sidebar.querySelector("#replay-file")!;
+      replayStatusEl = sidebar.querySelector("#replay-status")!;
+      saveBtn.addEventListener("click", () => {
+        downloadReplay();
+        saveBtn.blur(); // so Space toggles pause again, not the button
+      });
+      loadBtn.addEventListener("click", () => {
+        replayFile.click();
+        loadBtn.blur();
+      });
+      nextSegBtn.addEventListener("click", () => {
+        if (loadedReplay && replayIndex < loadedReplay.segments.length - 1) loadSegment(replayIndex + 1);
+        nextSegBtn.blur();
+      });
+      replayFile.addEventListener("change", () => {
+        const file = replayFile.files?.[0];
+        if (file) void loadReplayFile(file);
+        replayFile.value = ""; // reset so re-picking the same file fires `change` again
+      });
+      refreshReplayControls();
+    }
   };
 
   const end = (outcome: RunOutcome): void => {
@@ -418,26 +437,39 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       // during the fade, so the outgoing screen still reads this stage's background /
       // nameplate / BGM rather than leaking the next one's. The finished play becomes a
       // prior segment (no continue spent); the fresh screen then builds the next stage's
-      // sim with `run.carryIn` applied. Fade through black like any clear.
+      // sim with `run.carryIn` applied. A stage-clear beat holds the moment (freezing the
+      // sim behind it) before the fade through black.
       const seg = { stageIndex: run.currentStageIndex, frames: driver.getRecording().frames };
       const carry = readCarryIn(sim.player);
-      shell.transition(() => {
-        run.advanceStage(seg, carry);
-        shell.router.replace(createInGameScreen(shell, run));
-      });
+      const bonus = sim.stageClearBonus;
+      shell.router.push(
+        createStageClearScreen(shell, bonus, () => {
+          shell.router.pop(); // drop the beat, back to this (frozen) screen
+          shell.transition(() => {
+            run.advanceStage(seg, carry);
+            shell.router.replace(createInGameScreen(shell, run));
+          });
+        }),
+      );
     } else {
       // No next stage — either the main campaign's final clear or a standalone single-stage
-      // run (Extra/practice) that never advances. Capture the score at the clear tick (the sim
-      // keeps stepping during the fade, so a read inside the callback could drift) and fade
-      // through black. The game-over path instead PUSHES the continue prompt (no fade — it
-      // keeps the frozen death moment).
+      // run (Extra/practice) that never advances. Capture the score + clear bonus at the clear
+      // tick (the sim keeps stepping once the beat is dismissed, so a later read could drift),
+      // hold the clear beat, then fade through black. The game-over path instead PUSHES the
+      // continue prompt (no beat — it keeps the frozen death moment).
       const finalScore = sim.player.score;
+      const bonus = sim.stageClearBonus;
       const toResults = (): Screen => createResultsScreen(shell, outcome, finalScore, run);
-      shell.transition(() =>
-        // Only finishing the CAMPAIGN rolls the ending staff-roll (with results as its hand-off,
-        // built lazily so the score/run are captured now). A standalone clear has no ending — it
-        // is one stage, not the end of the game — so it goes straight to results.
-        shell.router.replace(run.isMainCampaign ? createEndingScreen(shell, toResults) : toResults()),
+      shell.router.push(
+        createStageClearScreen(shell, bonus, () => {
+          shell.router.pop();
+          shell.transition(() =>
+            // Only finishing the CAMPAIGN rolls the ending staff-roll (with results as its
+            // hand-off, built lazily so the score/run are captured now). A standalone clear has
+            // no ending — it is one stage, not the end of the game — so it goes straight to results.
+            shell.router.replace(run.isMainCampaign ? createEndingScreen(shell, toResults) : toResults()),
+          );
+        }),
       );
     }
   };
@@ -461,15 +493,31 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
       // start of a run — but loading a replay into a boss-present tick must not phantom-splash).
       cutins.reset(sim.boss !== null);
       spellTint = 0;
+      // Stage-opening splash (title/subtitle from the stage def). Fires on every genuine live
+      // entry — a fresh run, a stage-advance, a continue — but NOT on a loaded replay (rebuilds
+      // in place, never re-enters) or a hot-reload (`resync`), the same gate the practice-record
+      // above uses. A game that authors no `title` gets no splash.
+      const entered = shell.def.stages[run.currentStageIndex];
+      chrome.splash(entered?.title, entered?.subtitle);
     },
     exit(): void {
       sidebar.innerHTML = "";
       cutins.destroy();
+      chrome.destroy();
     },
     frame(dtSeconds: number): void {
       // Advance the presentation clock (animation) by real elapsed time. Presentation-only;
       // unrelated to the sim's fixed timestep and never hashed.
       presentationClock += dtSeconds;
+
+      // Corner FPS readout — smoothed real frame rate (wall clock, never the sim tick). Updated
+      // here (frame has the real dt) rather than in render; runs even while paused/scrubbing,
+      // which is exactly when you want to watch it.
+      if (dtSeconds > 0) {
+        const instant = 1 / dtSeconds;
+        fpsEma = fpsEma > 0 ? fpsEma * 0.9 + instant * 0.1 : instant;
+        chrome.fps(fpsEma);
+      }
 
       // Capture the tick at the TOP, before the debugger-key loop can single-step or
       // step back: SFX play iff the sim actually advanced FORWARD this frame (below).
@@ -708,8 +756,9 @@ export function createInGameScreen(shell: Shell, run: RunController): InGameScre
         difficultyLabel: difficulty?.label ?? "",
         title: shell.def.title,
       });
-      // Replay feedback stays with the always-visible controls (not the dev readout).
-      replayStatusEl.textContent = replayStatus;
+      // Replay feedback rides with the (DEV-only) replay controls, so the write is gated the
+      // same way — in production `replayStatusEl` was never built.
+      if (import.meta.env.DEV) replayStatusEl.textContent = replayStatus;
       // Persistent cut-in chrome (nameplate, spell banner) + the boss-appear splash edge, from
       // sim STATE. Runs every rendered frame (even paused) so the appear edge is at-most-once
       // and never stale across a scrub — see cutins.ts. Transient cues went through the gate.

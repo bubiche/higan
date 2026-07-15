@@ -119,9 +119,14 @@ export function awardSpellCapture(
   player.score += bonus;
 }
 
-/** Award the stage-clear bonus from remaining lives and bombs. Integer. */
-export function awardStageClear(player: Player, s: ScoringConfig): void {
-  player.score += player.lives * s.stageBonusPerLife + player.bombs * s.stageBonusPerBomb;
+/** Award the stage-clear bonus from remaining lives and bombs, returning the amount added
+ *  so a caller can surface it (the shell shows it in the clear banner). Integer. The amount
+ *  must be captured HERE, at the award: the same-tick extend check runs right after and can
+ *  bump `player.lives`, so recomputing it later would overcount. */
+export function awardStageClear(player: Player, s: ScoringConfig): number {
+  const bonus = player.lives * s.stageBonusPerLife + player.bombs * s.stageBonusPerBomb;
+  player.score += bonus;
+  return bonus;
 }
 
 /**

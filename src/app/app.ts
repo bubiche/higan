@@ -25,6 +25,7 @@ import { createRouter, type Router, type Shell } from "./screen";
 import { createTitleScreen } from "./screens/title";
 import { loadSave, persistSave, clampDisplayScale } from "./save";
 import { createAudioEngine, createNullAudioEngine, type AudioEngine } from "../audio/engine";
+import { createBgmToast } from "./toast";
 import type { GameDefinition } from "../api/game";
 import type { BackgroundLayer } from "../api/sprites";
 
@@ -123,16 +124,21 @@ export function runGame(def: GameDefinition): AppHandle {
   // Options can re-apply them live. Built from the INITIAL def's manifest — audio is not
   // re-preloaded on a content hot-reload (editing a boss pattern doesn't change sound).
   const audioManifest = def.assets?.audio;
+  // Now-playing toast — shell-owned so it survives screen changes (BGM is a shell-level state).
+  // Fed by the audio engine's on-track-start hook below; the display title comes from the BGM
+  // manifest (a track's `id` → its authored `title`), falling back to the id if unnamed.
+  const bgmToast = createBgmToast();
   const audio: AudioEngine =
     audioManifest && typeof AudioContext !== "undefined"
       ? createAudioEngine(
           new AudioContext(),
           () => ({ bgm: save.settings.bgmVolume, sfx: save.settings.sfxVolume }),
-          // Unlock-on-hear: the first time a BGM track actually plays, record it so the
-          // Music room can list it. Deduped before persisting, so a track writes to
-          // localStorage at most once (never per re-assertion) — playing through the game
-          // is what fills the room.
+          // Fires the instant a track actually starts (see engine `onTrackStart`). Two
+          // presentation consumers: the now-playing toast, and unlock-on-hear (the first time
+          // a track plays it's recorded so the Music room can list it — deduped before
+          // persisting, so a track writes to localStorage at most once, never per re-assertion).
           (trackId) => {
+            bgmToast.show(audioManifest.bgm[trackId]?.title ?? trackId);
             if (!save.unlocks.musicRoom.includes(trackId)) {
               save.unlocks.musicRoom.push(trackId);
               persistSave(save);

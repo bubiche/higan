@@ -186,6 +186,11 @@ export interface Simulation {
    *  boss are all done). This, not any single boss's defeat, is the run-end signal: a
    *  midboss falling resumes the stage rather than ending the run. */
   readonly stageComplete: boolean;
+  /** The stage-clear bonus actually awarded at the clear tick (0 until the stage completes).
+   *  Captured at the award site — NOT recomputed from lives/bombs, which the same-tick extend
+   *  check can mutate after the award. Presentation-only: derived from already-hashed state,
+   *  never read back into sim logic, never hashed (the shell shows it in the clear banner). */
+  readonly stageClearBonus: number;
   /** SFX events from the LAST step — presentation only. NOT hashed and never read back
    *  into sim logic; pushing them consumes zero RNG. Cleared at the start of each step,
    *  so this reflects exactly one tick's worth. Reading or ignoring it has zero effect
@@ -285,6 +290,10 @@ export function createStageSim(
   // returning, which needs the final boss beaten — a dead player can't, so this never
   // fires on a loss (and is gated on it besides).
   let prevStageComplete = false;
+  // The stage-clear bonus actually awarded at the clear tick (captured from the award, not
+  // recomputed — the same-tick extend check can bump `lives` right after). Presentation-only:
+  // read once by the shell for the clear banner, never fed back into sim logic, never hashed.
+  let stageClearBonus = 0;
   // The scheduler runs an ordered array of emitter roots + their children (the stage
   // root, the boss once spawned, and every `sub`-spawned emitter). Stepped in array
   // order each tick; stable order + the clamped-yield rule keep it deterministic.
@@ -745,7 +754,7 @@ export function createStageSim(
     //     trigger an extend. Gated on a live player so a boss timing out after a
     //     game-over can't pay a clear bonus.
     if (!prevStageComplete && stageRoot.done && player.state !== PlayerState.GameOver) {
-      awardStageClear(player, scoring);
+      stageClearBonus = awardStageClear(player, scoring);
     }
     prevStageComplete = stageRoot.done;
     // An encounter ends when its boss coroutine returns; null `bossRoot` so the HUD
@@ -1152,6 +1161,9 @@ export function createStageSim(
     bossBody,
     get stageComplete() {
       return stageRoot.done;
+    },
+    get stageClearBonus() {
+      return stageClearBonus;
     },
     get events() {
       return events;

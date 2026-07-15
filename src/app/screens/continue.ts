@@ -25,13 +25,26 @@ import { createResultsScreen } from "./results";
  *  across the rebuild so the run spans the continue. `lastPlay` is the play that just
  *  ended in game-over: on Continue it becomes a prior segment; on give-up it is dropped.
  *  The per-run continue allowance is a game-level run rule (`config.continues`). */
+/** The continue prompt auto-declines after this many seconds — the arcade countdown: choose
+ *  to continue before the timer runs out, or the run ends. Presentation timer (real dt), never
+ *  the sim (which is frozen behind this overlay). */
+const COUNTDOWN_SECONDS = 9;
+
 export function createContinueScreen(shell: Shell, run: RunController, lastPlay: ReplaySegment): Screen {
   const { overlay, input, router } = shell;
   // Read BEFORE recordContinue runs, so this prompt offers the allowance still left.
   const remaining = shell.def.config.continues - run.continuesUsed;
   let menu: Menu;
+  let countdownEl: HTMLElement;
+  let elapsed = 0;
+  // Latch: the decision (a menu confirm/cancel OR the countdown expiring) fires exactly once.
+  // Without it, the countdown could auto-decline the same frame the player chose Continue —
+  // after the choice has already popped this screen.
+  let decided = false;
 
   const doContinue = (): void => {
+    if (decided) return;
+    decided = true;
     // Promote the just-finished play into the run's history and spend a continue, then
     // rebuild the run from the same controller. The fresh sim resets score + restores
     // lives/bombs; the next game-over offers one fewer continue.
@@ -40,6 +53,8 @@ export function createContinueScreen(shell: Shell, run: RunController, lastPlay:
     router.replace(createInGameScreen(shell, run));
   };
   const giveUp = (): void => {
+    if (decided) return;
+    decided = true;
     router.pop();
     router.replace(createResultsScreen(shell, "gameover"));
   };
@@ -60,13 +75,34 @@ export function createContinueScreen(shell: Shell, run: RunController, lastPlay:
         onSfx: (id) => shell.audio.play(id),
         items,
       });
+      // Big arcade countdown below the prompt (its own element — the menu widget has no
+      // per-frame text hook). Inline-styled so it needs no host-page CSS.
+      countdownEl = document.createElement("div");
+      Object.assign(countdownEl.style, {
+        position: "absolute",
+        left: "0",
+        right: "0",
+        top: "63%",
+        textAlign: "center",
+        font: "800 40px/1 ui-monospace, SFMono-Regular, Menlo, monospace",
+        color: "#ff6a6a",
+        textShadow: "0 0 18px #ff2a2a, 0 2px 4px #000",
+        pointerEvents: "none",
+      });
+      overlay.appendChild(countdownEl);
     },
     exit(): void {
       menu.dispose();
+      countdownEl.remove();
       input.flush();
     },
-    frame(): void {
+    frame(dtSeconds: number): void {
+      if (decided) return;
       menu.handleEvents(input.takeEvents());
+      if (decided) return; // the player just chose — don't also run the timer this frame
+      elapsed += dtSeconds;
+      countdownEl.textContent = `${Math.max(0, Math.ceil(COUNTDOWN_SECONDS - elapsed))}`;
+      if (elapsed >= COUNTDOWN_SECONDS) giveUp();
     },
     render(): void {
       // DOM-only; the frozen field is drawn by the in-game screen beneath.

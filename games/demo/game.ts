@@ -127,6 +127,8 @@ export const demoGame = defineGame({
   stages: [
     {
       id: "stage-1",
+      title: "Stage 1",
+      subtitle: "Azure Approach",
       script: demoStage,
       boss: DEMO_BOSS,
       // Presentation identity for the boss splash / nameplate / spell cut-in. The portrait is
@@ -138,6 +140,8 @@ export const demoGame = defineGame({
     },
     {
       id: "stage-2",
+      title: "Stage 2",
+      subtitle: "Ember Thoroughfare",
       script: emberStage,
       boss: EMBER_BOSS,
       bossInfo: { name: "Ember Songstress", portrait: demoPortraits.songstress },
@@ -146,6 +150,8 @@ export const demoGame = defineGame({
     },
     {
       id: "stage-3",
+      title: "Stage 3",
+      subtitle: "Nocturne Spire",
       script: nocturneStage,
       boss: NOCTURNE_BOSS,
       bossInfo: { name: "Nocturne Sovereign", portrait: demoPortraits.nocturne },
@@ -159,6 +165,8 @@ export const demoGame = defineGame({
       // set (clearing Stage 3). Its far-shore theme is the game's one real audio FILE and its
       // background far layer the one real image FILE — the reference url-asset examples.
       id: "extra",
+      title: "Extra Stage",
+      subtitle: "Crimson Shore",
       extra: true,
       script: shoreStage,
       boss: SHOREKEEPER_BOSS,

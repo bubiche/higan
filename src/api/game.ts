@@ -54,6 +54,13 @@ export interface StageDef {
   readonly id: string;
   /** The stage's scene-root coroutine. */
   readonly script: StageScript;
+  /** Display name shown on the stage-opening splash (e.g. "Stage 1", "Extra Stage").
+   *  Presentation-only, read by the shell — never by the sim (a sibling of `music`/
+   *  `background`/`bossInfo`). Omit for no splash. */
+  readonly title?: string;
+  /** Optional second line on the splash, under `title` (e.g. a place/scene name). Shown only
+   *  when `title` is set. Presentation-only. */
+  readonly subtitle?: string;
   /** The stage's headline boss, run by `ctx.boss()` with no argument, if any. */
   readonly boss?: BossScript;
   /** The headline boss's presentation identity (nameplate name + spell cut-in portrait).
