@@ -27,11 +27,15 @@ export const Shape = {
   Bubble: 9,
   Heart: 10,
   Butterfly: 11,
+  /** Not a bullet shape a game selects — the soft bloom the renderer stacks over a
+   *  just-spawned bullet for the spawn flash (see `marshalBullets`). Kept in the same
+   *  atlas so it draws in the one additive glow call. */
+  Flare: 12,
 } as const;
 export type Shape = (typeof Shape)[keyof typeof Shape];
 
 /** Number of atlas layers. Drawers below must be listed in `Shape` order. */
-export const SHAPE_COUNT = 12;
+export const SHAPE_COUNT = 13;
 
 type Drawer = (ctx: CanvasRenderingContext2D, size: number) => void;
 
@@ -195,5 +199,20 @@ export const SHAPE_DRAWERS: readonly Drawer[] = [
     glowEllipse(ctx, cx - s * 0.16, cy - s * 0.12, s * 0.18, s * 0.13, 0.4); // hind, upper
     glowEllipse(ctx, cx - s * 0.16, cy + s * 0.12, s * 0.18, s * 0.13, -0.4); // hind, lower
     glowEllipse(ctx, cx, cy, s * 0.28, s * 0.05, 0); // body
+  },
+  // Flare — a wide soft bloom filling the cell, brighter and gentler-falloff than Orb, so
+  // scaled up and stacked additively it reads as a burst of light rather than a bigger
+  // bullet. Never selected by a game (see `Shape.Flare`); only the spawn-flash pass draws it.
+  (ctx, s) => {
+    const c = s / 2;
+    const g = ctx.createRadialGradient(c, c, 0, c, c, c);
+    g.addColorStop(0.0, "rgba(255,255,255,1.0)");
+    g.addColorStop(0.28, "rgba(255,255,255,0.55)");
+    g.addColorStop(0.62, "rgba(255,255,255,0.16)");
+    g.addColorStop(1.0, "rgba(255,255,255,0.0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(c, c, c, 0, Math.PI * 2);
+    ctx.fill();
   },
 ];

@@ -11,7 +11,7 @@
 //
 // Run: pnpm test image-bullets
 
-import { marshalBullets, INSTANCE_FLOATS } from "../src/render/bullets";
+import { marshalBullets, INSTANCE_FLOATS, FLARE } from "../src/render/bullets";
 import { createBulletStore } from "../src/bullets/store";
 import { createBulletImageTable, IMAGE_FLAG, IMAGE_INDEX_MASK } from "../src/bullets/sprite-table";
 import { planSpriteLayout } from "../src/render/atlas";
@@ -48,6 +48,9 @@ const set = (i: number, spriteByte: number, live: number): void => {
   store.g[i] = 1;
   store.b[i] = 1;
   store.sprite[i] = spriteByte;
+  // Aged well past the spawn flash so this partition test sees only the bullet instances,
+  // not the extra flare a young bullet would stack in (covered separately below).
+  store.age[i] = FLARE.ticks;
   alive[i] = live;
 };
 set(0, Shape.Kunai, 1);
@@ -64,6 +67,50 @@ check("image slot kept its position", imageOut[0] === 11 && imageOut[1] === 21);
 check("kunai wrote its layer to glow", glowOut[7] === Shape.Kunai, `${glowOut[7]}`);
 check("not-ready image fell back to glow Orb", glowOut[INSTANCE_FLOATS + 7] === Shape.Orb, `${glowOut[INSTANCE_FLOATS + 7]}`);
 check("dead slot skipped (only 2 glow written)", glowOut[2 * INSTANCE_FLOATS + 2] === 0);
+
+// ── 1b: spawn flash — a young bullet stacks an extra Flare bloom into the glow stream ───
+// Three live glow orbs at three ages: fresh (full flare), half-flash (dimmed/smaller flare),
+// and exactly at the cutoff (no flare — the test is `age < ticks`). Radius 5, white.
+const fstore = createBulletStore(4);
+const falive = new Uint8Array(4);
+const fset = (i: number, ageTicks: number): void => {
+  fstore.x[i] = i;
+  fstore.y[i] = i;
+  fstore.radius[i] = 5;
+  fstore.r[i] = 1;
+  fstore.g[i] = 1;
+  fstore.b[i] = 1;
+  fstore.sprite[i] = Shape.Orb;
+  fstore.age[i] = ageTicks;
+  falive[i] = 1;
+};
+const half = Math.floor(FLARE.ticks / 2);
+fset(0, 0); // fresh → full-strength flare
+fset(1, half); // mid → faded, smaller flare
+fset(2, FLARE.ticks); // at cutoff → NO flare
+const fglow = new Float32Array(4 * 2 * INSTANCE_FLOATS); // 2× headroom for the flares
+const fimg = new Float32Array(4 * INSTANCE_FLOATS);
+const fres = marshalBullets(fstore, falive, 3, fglow, fimg, () => -1);
+// 3 bullets + 2 flares (fresh + mid; the cutoff bullet emits none).
+check("young bullets add flares to glow count", fres.glow === 5, `${fres.glow}`);
+// Instance order per young slot is [bullet, flare]; the cutoff slot is [bullet] only.
+const flareAt = INSTANCE_FLOATS; // the fresh bullet's flare (instance 1)
+check("flare layer is Shape.Flare", fglow[flareAt + 7] === Shape.Flare, `${fglow[flareAt + 7]}`);
+check(
+  "fresh flare is maxScale× the bullet radius",
+  Math.abs(fglow[flareAt + 2] - 5 * FLARE.maxScale) < 1e-4,
+  `${fglow[flareAt + 2]} vs ${5 * FLARE.maxScale}`,
+);
+check("fresh flare tint undimmed", fglow[flareAt + 4] === 1, `${fglow[flareAt + 4]}`);
+const midFlare = 3 * INSTANCE_FLOATS; // bullet(0), flare(1), bullet(2)=mid bullet, flare(3)=mid flare
+const midFade = 1 - half / FLARE.ticks;
+check("mid flare tint fades with age", Math.abs(fglow[midFlare + 4] - midFade) < 1e-4, `${fglow[midFlare + 4]} vs ${midFade}`);
+check(
+  "mid flare smaller than fresh flare",
+  fglow[midFlare + 2] < fglow[flareAt + 2] && fglow[midFlare + 2] > 5,
+  `${fglow[midFlare + 2]}`,
+);
+check("cutoff bullet emits its bullet, not a flare", fglow[4 * INSTANCE_FLOATS + 7] === Shape.Orb, `${fglow[4 * INSTANCE_FLOATS + 7]}`);
 
 // ── 2: an image-bullet emitter hashes identically to a glow-bullet emitter ──────────
 // A tiny stage that subs one emitter firing a repeating ring; the ONLY difference between

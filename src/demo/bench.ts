@@ -23,7 +23,7 @@
 
 import { startAnimationLoop } from "../core/loop";
 import { createGL } from "../render/gl";
-import { createBulletRenderer, INSTANCE_FLOATS } from "../render/bullets";
+import { createBulletRenderer, INSTANCE_FLOATS, FLARE } from "../render/bullets";
 import { createBulletSystem } from "../bullets/system";
 import { createLaserSystem } from "../touhou/laser";
 import {
@@ -92,6 +92,14 @@ const START_Y = PLAYFIELD_H * 0.8;
 const player = createPlayer(PLAYER_CONFIG, START_X, START_Y, DEFAULT_SCORING.pivBase);
 const lasers = createLaserSystem(64);
 let collisionOn = true;
+// Spawn-flash stress. The natural flood ages bullets past the flash almost immediately, so
+// only a sliver ever flares — no stress on the flare path. With this on, every live bullet's
+// age is pinned to 0 each frame so the WHOLE field flares at once: the strict worst case, both
+// for instance count (glow stream doubles → 2× target) and for additive overdraw (each flare
+// is a maxScale× quad). This is what the V1 gate must survive. NOTE the cpu-work p99 below only
+// sees CPU (marshal + upload + draw submission); the flare's dominant cost is GPU fill-rate,
+// which lands on the CADENCE fps line, not the CPU verdict — judge the flare gate on cadence.
+let flareStress = false;
 
 // Tick-driven moving input (no wall-clock). Its only job is observability: a moving
 // player makes graze climb and occasionally takes a hit, proving the player +
@@ -208,6 +216,12 @@ startAnimationLoop((dtSeconds) => {
     acc -= DT;
     steps++;
   }
+  // Worst-case the spawn flash: pin every live bullet to age 0 so the whole field flares.
+  // Bench-only mutation (the flood is straight-line bullets that ignore age); not the sim.
+  if (flareStress) {
+    const { age } = system.store;
+    for (let i = 0; i < system.highWater; i++) if (system.alive[i]) age[i] = 0;
+  }
   gl.clearColor(0.008, 0.012, 0.04, 1);
   gl.clear(gl.COLOR_BUFFER_BIT);
   const counts = renderer.draw(
@@ -250,12 +264,13 @@ startAnimationLoop((dtSeconds) => {
     const cpuNote = collisionOn ? "update + collision + marshal + submit" : "update + marshal + submit";
     hud.innerHTML =
       `live      ${system.liveCount.toLocaleString().padStart(7)}  / target ${target.toLocaleString()}\n` +
-      `drawn     ${drawn.toLocaleString().padStart(7)}\n` +
+      `drawn     ${drawn.toLocaleString().padStart(7)}  (incl. spawn flares)\n` +
       `highWater ${system.highWater.toLocaleString().padStart(7)}\n` +
       `collision ${collisionOn ? "ON  (press c to compare baseline)" : "off (bare bullets, press c)"}\n` +
+      `flare     ${flareStress ? "STRESS (whole field, press f)" : "natural (press f to flood)"}  ticks ${FLARE.ticks} [ ]  scale ${FLARE.maxScale.toFixed(1)} , .\n` +
       `player    ${playerLine}\n` +
       `cpu work  avg ${cp.avg.toFixed(3)}ms   p99 <span class="${verdict}">${cp.p99.toFixed(3)}ms</span>   (${cpuNote})\n` +
-      `cadence   avg ${fr.avg.toFixed(2)}ms   p99 ${fr.p99.toFixed(2)}ms   fps ${fps.toFixed(1)}  (vsync-bound)`;
+      `cadence   avg ${fr.avg.toFixed(2)}ms   p99 ${fr.p99.toFixed(2)}ms   fps ${fps.toFixed(1)}  (flare gate rides HERE, not cpu)`;
   }
 });
 
@@ -263,4 +278,10 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "+" || e.key === "=") target = Math.min(MAX_BULLETS, target + 5_000);
   else if (e.key === "-" || e.key === "_") target = Math.max(0, target - 5_000);
   else if (e.key === "c" || e.key === "C") collisionOn = !collisionOn;
+  else if (e.key === "f" || e.key === "F") flareStress = !flareStress;
+  // Live flare tuning (no rebuild) — the two knobs to reach for if cadence sags.
+  else if (e.key === "[") FLARE.ticks = Math.max(1, FLARE.ticks - 1);
+  else if (e.key === "]") FLARE.ticks = Math.min(60, FLARE.ticks + 1);
+  else if (e.key === ",") FLARE.maxScale = Math.max(1, FLARE.maxScale - 0.25);
+  else if (e.key === ".") FLARE.maxScale = Math.min(6, FLARE.maxScale + 0.25);
 });

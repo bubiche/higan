@@ -22,6 +22,16 @@ import { Shape } from "./shapes";
 /** Floats written per bullet instance: x, y, scale, angle, r, g, b, layer. */
 export const INSTANCE_FLOATS = 8;
 
+/**
+ * Spawn-flash tuning. For its first `ticks` of life a bullet gets an extra additive `Flare`
+ * bloom stacked over it, `maxScale`× its radius fading to 1× as it settles, so a fresh wave
+ * reads as a burst of light instead of popping in flat. Presentation-only (keyed on the
+ * bullet's already-hashed `age`; nothing here is written back to the sim). Default on, no
+ * per-bullet opt-out — a game gets it for free. The stress bench mutates these live to tune
+ * scale/duration against the frame budget without a rebuild; the game leaves the defaults.
+ */
+export const FLARE = { ticks: 10, maxScale: 2.5 };
+
 /** Instance counts written to each pass's buffer by `marshalBullets`. */
 export interface BulletMarshalResult {
   /** Instances written to the additive glow buffer. */
@@ -43,7 +53,15 @@ export interface BulletMarshalResult {
  * tens of thousands of bullets, so each branch writes its statically-known array inline
  * (no `out = …` indirection) to keep the loop monomorphic; the glow branch — the near-
  * always-taken case — is a single not-taken test away from the plain write it always was.
- * Both buffers must hold at least `liveCount * INSTANCE_FLOATS` floats.
+ *
+ * A just-spawned bullet (`age < FLARE.ticks`) additionally emits an extra `Flare` bloom
+ * into `glowOut` — the spawn flash — regardless of whether the bullet itself is a glow shape
+ * or a custom image (the flare is a generic additive glow, not a per-sprite effect). So the
+ * glow stream can hold up to TWO instances per live bullet: `glowOut` must therefore be sized
+ * `2 * liveCount * INSTANCE_FLOATS` (the renderer's internal buffer is), while `imageOut`
+ * still needs only `liveCount * INSTANCE_FLOATS` (images never double). Player shots are
+ * deliberately left flare-free (see `marshalShots`): they spawn every few ticks, so flashing
+ * them would be constant noise rather than a spawn accent.
  */
 export function marshalBullets(
   store: BulletStore,
@@ -53,7 +71,10 @@ export function marshalBullets(
   imageOut: Float32Array,
   imageLayer: (tableId: number) => number,
 ): BulletMarshalResult {
-  const { x, y, angle, radius, r, g, b, sprite } = store;
+  const { x, y, angle, radius, r, g, b, sprite, age } = store;
+  // Hoist the flare tuning once per call (never per bullet) so the hot loop stays tight.
+  const flashTicks = FLARE.ticks;
+  const scaleSpan = FLARE.maxScale - 1;
   let go = 0;
   let io = 0;
   let glow = 0;
@@ -74,9 +95,21 @@ export function marshalBullets(
         imageOut[io + 7] = resolved;
         io += INSTANCE_FLOATS;
         image++;
-        continue;
+      } else {
+        // Atlas not ready (or a failed url): draw a glow orb rather than nothing.
+        glowOut[go] = x[i];
+        glowOut[go + 1] = y[i];
+        glowOut[go + 2] = radius[i];
+        glowOut[go + 3] = angle[i];
+        glowOut[go + 4] = r[i];
+        glowOut[go + 5] = g[i];
+        glowOut[go + 6] = b[i];
+        glowOut[go + 7] = Shape.Orb;
+        go += INSTANCE_FLOATS;
+        glow++;
       }
-      // Atlas not ready (or a failed url): draw a glow orb rather than nothing.
+    } else {
+      // Glow shape — the near-always-taken path; `byte` is the atlas layer directly.
       glowOut[go] = x[i];
       glowOut[go + 1] = y[i];
       glowOut[go + 2] = radius[i];
@@ -84,22 +117,26 @@ export function marshalBullets(
       glowOut[go + 4] = r[i];
       glowOut[go + 5] = g[i];
       glowOut[go + 6] = b[i];
-      glowOut[go + 7] = Shape.Orb;
+      glowOut[go + 7] = byte;
       go += INSTANCE_FLOATS;
       glow++;
-      continue;
     }
-    // Glow shape — the near-always-taken path; `byte` is the atlas layer directly.
-    glowOut[go] = x[i];
-    glowOut[go + 1] = y[i];
-    glowOut[go + 2] = radius[i];
-    glowOut[go + 3] = angle[i];
-    glowOut[go + 4] = r[i];
-    glowOut[go + 5] = g[i];
-    glowOut[go + 6] = b[i];
-    glowOut[go + 7] = byte;
-    go += INSTANCE_FLOATS;
-    glow++;
+    // Spawn flash: stack a scaled, fading additive bloom over any just-spawned bullet. A
+    // not-taken test for the whole (typical) old-bullet field; only young slots pay the write.
+    const a = age[i];
+    if (a < flashTicks) {
+      const fade = 1 - a / flashTicks; // 1 at spawn → 0 as it settles
+      glowOut[go] = x[i];
+      glowOut[go + 1] = y[i];
+      glowOut[go + 2] = radius[i] * (1 + scaleSpan * fade); // maxScale× → 1×
+      glowOut[go + 3] = 0; // round bloom — rotation irrelevant
+      glowOut[go + 4] = r[i] * fade; // additive: dim the tint to fade the bloom out
+      glowOut[go + 5] = g[i] * fade;
+      glowOut[go + 6] = b[i] * fade;
+      glowOut[go + 7] = Shape.Flare;
+      go += INSTANCE_FLOATS;
+      glow++;
+    }
   }
   return { glow, image };
 }
@@ -206,8 +243,10 @@ export function createBulletRenderer(
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 
-  // Instance buffer, pre-allocated at capacity; we upload the active prefix.
-  const instData = new Float32Array(capacity * INSTANCE_FLOATS);
+  // Instance buffer, pre-allocated; we upload the active prefix. Sized to 2× capacity because
+  // the glow stream carries up to one spawn-flash flare PER live bullet on top of the bullet
+  // itself (see `marshalBullets`), so a fully-young field marshals 2× capacity glow instances.
+  const instData = new Float32Array(capacity * 2 * INSTANCE_FLOATS);
   // Scratch for the optional one-instance overlay draw.
   const overlayData = new Float32Array(INSTANCE_FLOATS);
   const instBuf = gl.createBuffer();
